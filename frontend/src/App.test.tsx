@@ -41,6 +41,35 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
+  it('disables movement when telemetry is stale', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now() - 1100,
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    expect(screen.getByText('STALE')).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Move forward',
+      }),
+    ).toBeDisabled()
+  })
+
   it('shows commanded and observed state separately', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 

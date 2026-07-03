@@ -143,3 +143,41 @@ def test_websocket_reports_live_connection() -> None:
             "type": "command_status",
             "status": "completed",
         }
+
+def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
+    import time
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "set_fault",
+                "fault": "telemetry_delay",
+            }
+        )
+
+        assert websocket.receive_json() == {
+            "type": "fault_status",
+            "fault": "telemetry_delay",
+            "enabled": True,
+        }
+
+        delayed = websocket.receive_json()
+
+        assert delayed["type"] == "robot_state"
+        assert int(time.time() * 1000) - delayed["observedAtMs"] >= 1000
+
+        websocket.send_json({"type": "clear_fault"})
+
+        assert websocket.receive_json() == {
+            "type": "fault_status",
+            "fault": "telemetry_delay",
+            "enabled": False,
+        }
+
+        recovered = websocket.receive_json()
+
+        assert recovered["type"] == "robot_state"
+        assert int(time.time() * 1000) - recovered["observedAtMs"] < 250

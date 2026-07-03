@@ -10,15 +10,12 @@ export type ConnectionState =
   | 'live'
   | 'disconnected'
 
-type ConnectionMessage = {
-  type: 'connection_status'
-  status: 'live'
-}
-
 export type CommandStatus =
   | 'acknowledged'
   | 'executing'
   | 'completed'
+  | 'failed'
+  | 'rejected'
 
 export type Pose = {
   x: number
@@ -31,11 +28,16 @@ export type RobotState = {
   actualPose: Pose
 }
 
+export type ActiveFault = 'telemetry_delay' | null
+
 type ServerMessage =
-  | ConnectionMessage
+  | {
+    type: 'connection_status'
+    status: 'live'
+  }
   | {
     type: 'robot_state'
-    sequence: number,
+    sequence: number
     observedAtMs: number
     commandedPose: Pose
     actualPose: Pose
@@ -44,17 +46,32 @@ type ServerMessage =
     type: 'command_status'
     status: CommandStatus
   }
-
+  | {
+    type: 'fault_status'
+    fault: 'telemetry_delay'
+    enabled: boolean
+  }
 
 export function useRobotSocket(url: string) {
   const socketRef = useRef<WebSocket | null>(null)
   const observedAtRef = useRef<number | null>(null)
 
-  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
-  const [robotState, setRobotState] = useState<RobotState | null>(null)
-  const [commandStatus, setCommandStatus] = useState<CommandStatus | null>(null)
-  const [telemetryState, setTelemetryState] = useState<TelemetryState>('stale')
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>('connecting')
+
+  const [robotState, setRobotState] =
+    useState<RobotState | null>(null)
+
+  const [commandStatus, setCommandStatus] =
+    useState<CommandStatus | null>(null)
+
+  const [telemetryState, setTelemetryState] =
+    useState<TelemetryState>('stale')
+
   const [telemetryAgeMs, setTelemetryAgeMs] = useState(0)
+
+  const [activeFault, setActiveFault] =
+    useState<ActiveFault>(null)
 
   useEffect(() => {
     let active = true
@@ -71,12 +88,16 @@ export function useRobotSocket(url: string) {
         setConnectionState(message.status)
       }
 
-      // Robot State handler
       if (message.type === 'robot_state') {
         observedAtRef.current = message.observedAtMs
 
-        setTelemetryAgeMs(0)
-        setTelemetryState('live')
+        const age = Math.max(
+          0,
+          Date.now() - message.observedAtMs,
+        )
+
+        setTelemetryAgeMs(age)
+        setTelemetryState(classifyTelemetry(age))
 
         setRobotState({
           commandedPose: message.commandedPose,
@@ -87,22 +108,31 @@ export function useRobotSocket(url: string) {
       if (message.type === 'command_status') {
         setCommandStatus(message.status)
       }
+
+      if (message.type === 'fault_status') {
+        setActiveFault(
+          message.enabled ? message.fault : null,
+        )
+      }
     }
 
     socket.onclose = () => {
       if (active) {
-        setConnectionState('disconnected')
+      setConnectionState('disconnected')
       }
     }
 
     const timer = window.setInterval(() => {
       if (observedAtRef.current === null) return
 
-      const age = Math.max(0, Date.now() - observedAtRef.current)
+      const age = Math.max(
+        0,
+        Date.now() - observedAtRef.current,
+      )
 
       setTelemetryAgeMs(age)
       setTelemetryState(classifyTelemetry(age))
-    })
+    }, 100)
 
     return () => {
       window.clearInterval(timer)
@@ -111,14 +141,29 @@ export function useRobotSocket(url: string) {
     }
   }, [url])
 
-  const moveForward = useCallback(() => {
-    socketRef.current?.send(
-      JSON.stringify({
-        type: 'command',
-        command: 'move_forward',
-      }),
-    )
+  const send = useCallback((message: unknown) => {
+    socketRef.current?.send(JSON.stringify(message))
   }, [])
+
+  const moveForward = useCallback(() => {
+    send({
+      type: 'command',
+      command: 'move_forward',
+    })
+  }, [send])
+
+  const enableTelemetryDelay = useCallback(() => {
+    send({
+      type: 'set_fault',
+      fault: 'telemetry_delay',
+    })
+  }, [send])
+
+  const clearFault = useCallback(() => {
+    send({
+      type: 'clear_fault',
+    })
+  }, [send])
 
   return {
     connectionState,
@@ -126,6 +171,9 @@ export function useRobotSocket(url: string) {
     commandStatus,
     telemetryState,
     telemetryAgeMs,
+    activeFault,
     moveForward,
+    enableTelemetryDelay,
+    clearFault,
   }
 }
