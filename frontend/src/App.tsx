@@ -26,8 +26,8 @@ export default function App() {
       <p>
         Telemetry:{' '}
         <strong>{telemetryState.toUpperCase()}</strong>
-        {' — '}
-        {telemetryAgeMs} ms
+        {/* {' — '}
+        {telemetryAgeMs} ms */}
       </p>
 
       <p>

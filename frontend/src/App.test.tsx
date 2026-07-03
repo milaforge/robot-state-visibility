@@ -57,6 +57,7 @@ describe('App', () => {
       MockWebSocket.instance.emit({
         type: 'robot_state',
         observedAtMs: Date.now(),
+        sequence: 1,
         commandedPost: { x: 0, y: 0, heading: 0 },
         actualPose: { x: 0, y: 0, heading: 0 },
       })
@@ -84,6 +85,7 @@ describe('App', () => {
 
       MockWebSocket.instance.emit({
         type: 'robot_state',
+        sequence: 1,
         observedAtMs: Date.now(),
         commandedPose: { x: 1, y: 0, heading: 0 },
         actualPose: { x: 0, y: 0, heading: 0 },

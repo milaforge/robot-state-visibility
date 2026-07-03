@@ -10,6 +10,7 @@ def assert_robot_state(
     actual_x: int,
 ) -> None:
     assert message["type"] == "robot_state"
+    assert isinstance(message["sequence"], int)
     assert isinstance(message["observedAtMs"], int)
     assert message["commandedPose"] == {
         "x": commanded_x,
@@ -21,6 +22,19 @@ def assert_robot_state(
         "y": 0,
         "heading": 0,
     }
+
+def test_idle_robot_continues_publishing_telemetry() -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+
+        first = websocket.receive_json()
+        second = websocket.receive_json()
+
+    assert_robot_state(first, 0, 0)
+    assert_robot_state(second, 0, 0)
+
+    assert second["sequence"] == first["sequence"] + 1
+    assert second["observedAtMs"] >= first["observedAtMs"]
 
 def test_move_command_separates_commanded_and_observed_state() -> None:
     with client.websocket_connect("/ws") as websocket:

@@ -5,6 +5,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI()
 
+TELEMETRY_INTERVAL_SECONDS = 0.5
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return { "status" : "ok" }
@@ -17,11 +19,17 @@ async def robot_socket(websocket: WebSocket) -> None:
     
     commanded_x = 0
     actual_x = 0
+    sequence = 0
     
     async def send_robot_state() -> None:
+        nonlocal sequence
+
+        sequence += 1
+
         await websocket.send_json(
             {
                 "type": "robot_state",
+                "sequence": sequence,
                 "observedAtMs": int(time.time() * 1000),
                 "commandedPose": {
                     "x": commanded_x,
@@ -46,8 +54,14 @@ async def robot_socket(websocket: WebSocket) -> None:
     
     try:
         while True:
-            
-            message = await websocket.receive_json()
+            try:
+                message = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=TELEMETRY_INTERVAL_SECONDS,
+                )
+            except TimeoutError:
+                await send_robot_state()
+                continue            
 
             if (
                 message.get("type") != "command"

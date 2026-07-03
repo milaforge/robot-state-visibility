@@ -35,6 +35,7 @@ type ServerMessage =
   | ConnectionMessage
   | {
     type: 'robot_state'
+    sequence: number,
     observedAtMs: number
     commandedPose: Pose
     actualPose: Pose
@@ -70,8 +71,12 @@ export function useRobotSocket(url: string) {
         setConnectionState(message.status)
       }
 
+      // Robot State handler
       if (message.type === 'robot_state') {
         observedAtRef.current = message.observedAtMs
+
+        setTelemetryAgeMs(0)
+        setTelemetryState('live')
 
         setRobotState({
           commandedPose: message.commandedPose,
