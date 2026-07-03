@@ -1,9 +1,9 @@
 import asyncio
+import time
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI()
-
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
@@ -22,6 +22,7 @@ async def robot_socket(websocket: WebSocket) -> None:
         await websocket.send_json(
             {
                 "type": "robot_state",
+                "observedAtMs": int(time.time() * 1000),
                 "commandedPose": {
                     "x": commanded_x,
                     "y": 0,

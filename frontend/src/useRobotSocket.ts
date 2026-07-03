@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import {
+  classifyTelemetry,
+  type TelemetryState,
+} from './telemetry'
+
 export type ConnectionState =
   | 'connecting'
   | 'live'
@@ -30,6 +35,7 @@ type ServerMessage =
   | ConnectionMessage
   | {
     type: 'robot_state'
+    observedAtMs: number
     commandedPose: Pose
     actualPose: Pose
   }
@@ -39,14 +45,15 @@ type ServerMessage =
   }
 
 
-
 export function useRobotSocket(url: string) {
   const socketRef = useRef<WebSocket | null>(null)
+  const observedAtRef = useRef<number | null>(null)
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
   const [robotState, setRobotState] = useState<RobotState | null>(null)
   const [commandStatus, setCommandStatus] = useState<CommandStatus | null>(null)
-
+  const [telemetryState, setTelemetryState] = useState<TelemetryState>('stale')
+  const [telemetryAgeMs, setTelemetryAgeMs] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -62,12 +69,16 @@ export function useRobotSocket(url: string) {
       if (message.type === 'connection_status') {
         setConnectionState(message.status)
       }
+
       if (message.type === 'robot_state') {
+        observedAtRef.current = message.observedAtMs
+
         setRobotState({
           commandedPose: message.commandedPose,
           actualPose: message.actualPose,
         })
       }
+
       if (message.type === 'command_status') {
         setCommandStatus(message.status)
       }
@@ -79,7 +90,17 @@ export function useRobotSocket(url: string) {
       }
     }
 
+    const timer = window.setInterval(() => {
+      if (observedAtRef.current === null) return
+
+      const age = Math.max(0, Date.now() - observedAtRef.current)
+
+      setTelemetryAgeMs(age)
+      setTelemetryState(classifyTelemetry(age))
+    })
+
     return () => {
+      window.clearInterval(timer)
       active = false
       socket.close()
     }
@@ -98,6 +119,8 @@ export function useRobotSocket(url: string) {
     connectionState,
     robotState,
     commandStatus,
+    telemetryState,
+    telemetryAgeMs,
     moveForward,
   }
 }
