@@ -1,0 +1,10 @@
+{
+  "name": "robot-state-visibility",
+  "scripts": {
+    "frontend:dev": "pnpm --dir frontend dev",
+    "frontend:test": "pnpm --dir frontend test",
+    "frontend:test:run": "pnpm --dir frontend test:run",
+    "frontend:lint": "pnpm --dir frontend lint",
+    "frontend:build": "pnpm --dir frontend build"
+  }
+}
