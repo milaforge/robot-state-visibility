@@ -32,6 +32,7 @@ def assert_robot_state(
     commanded_x: int,
     actual_x: int,
 ) -> None:
+    assert message["mode"] in {"idle", "emergency_stopped"}
     assert message["type"] == "robot_state"
     assert isinstance(message["sequence"], int)
     assert isinstance(message["observedAtMs"], int)
@@ -261,4 +262,74 @@ def test_interaction_can_fail_after_acknowledgement() -> None:
             "Interaction did not complete. "
             "Robot state is unchanged. "
             "Clear the fault and retry."
+        )
+
+def test_emergency_stop_rejects_normal_commands_until_reset() -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "emergency_stop",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "acknowledged",
+            },
+        )
+
+        stopped_state = receive_matching(
+            websocket,
+            {
+                "type": "robot_state",
+                "mode": "emergency_stopped",
+            },
+        )
+
+        assert stopped_state["commandedPose"] == stopped_state["actualPose"]
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "completed",
+            },
+        )
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "move_forward",
+            }
+        )
+
+        rejected = receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "rejected",
+            },
+        )
+
+        assert "emergency stop is active" in rejected["message"]
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "reset",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "robot_state",
+                "mode": "idle",
+            },
         )

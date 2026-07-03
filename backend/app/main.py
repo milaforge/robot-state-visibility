@@ -22,6 +22,7 @@ async def robot_socket(websocket: WebSocket) -> None:
     commanded_x = 0
     actual_x = 0
     sequence = 0
+    mode = "idle"
     active_fault: str | None = None
     fault_generation = 0
 
@@ -40,6 +41,7 @@ async def robot_socket(websocket: WebSocket) -> None:
             "type": "robot_state",
             "sequence": sequence,
             "observedAtMs": int(time.time() * 1000),
+            "mode": mode,
             "commandedPose": {
                 "x": commanded_x,
                 "y": 0,
@@ -83,9 +85,11 @@ async def robot_socket(websocket: WebSocket) -> None:
     try:
         while True:
             message = await websocket.receive_json()
+            message_type = message.get("type")
 
-            if message.get("type") == "set_fault":
+            if message_type == "set_fault":
                 fault = message.get("fault")
+
                 if fault not in {
                     "telemetry_delay",
                     "interaction_failure",
@@ -110,7 +114,7 @@ async def robot_socket(websocket: WebSocket) -> None:
                 )
                 continue
 
-            if message.get("type") == "clear_fault":
+            if message_type == "clear_fault":
                 if active_fault is None:
                     await send_message(
                         {
@@ -119,7 +123,7 @@ async def robot_socket(websocket: WebSocket) -> None:
                         }
                     )
                     continue
-                
+
                 cleared_fault = active_fault
                 active_fault = None
                 fault_generation += 1
@@ -134,23 +138,73 @@ async def robot_socket(websocket: WebSocket) -> None:
                 await send_robot_state()
                 continue
 
-            if (
-                message.get("type") != "command"
-            ):
+            if message_type != "command":
                 await send_message(
                     {
                         "type": "error",
-                        "message": "Unsupported command",
+                        "message": "Unsupported message",
                     }
                 )
                 continue
-            
+
             command = message.get("command")
+
+            if command == "emergency_stop":
+                mode = "emergency_stopped"
+                commanded_x = actual_x
+
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "acknowledged",
+                    }
+                )
+                await send_robot_state()
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "completed",
+                    }
+                )
+                continue
+
+            if command == "reset":
+                mode = "idle"
+
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "acknowledged",
+                    }
+                )
+                await send_robot_state()
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "completed",
+                    }
+                )
+                continue
+
+            if mode == "emergency_stopped":
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "rejected",
+                        "message": (
+                            "Command rejected while emergency stop is active. "
+                            "Reset before issuing normal commands."
+                        ),
+                    }
+                )
+                continue
+
             if command not in {"move_forward", "interact"}:
                 await send_message(
                     {
                         "type": "command_status",
                         "status": "rejected",
+                        "message": "Unsupported command.",
                     }
                 )
                 continue
@@ -168,7 +222,7 @@ async def robot_socket(websocket: WebSocket) -> None:
                     "status": "executing",
                 }
             )
-            
+
             if command == "move_forward":
                 commanded_x += 1
                 await send_robot_state()
@@ -186,28 +240,28 @@ async def robot_socket(websocket: WebSocket) -> None:
                 )
                 continue
 
-            elif command == "interact":
-                await asyncio.sleep(0.3)
+            await asyncio.sleep(0.3)
 
-                if active_fault == "interaction_failure":
-                    await send_message(
-                        {
-                            "type": "command_status",
-                            "status": "failed",
-                            "message": (
-                                "Interaction did not complete. "
-                                "Robot state is unchanged. "
-                                "Clear the fault and retry."
-                            ),
-                        }
-                    )
-                else:
-                    await send_message(
-                        {
-                            "type": "command_status",
-                            "status": "completed",
-                        }
-                    )
+            if active_fault == "interaction_failure":
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "failed",
+                        "message": (
+                            "Interaction did not complete. "
+                            "Robot state is unchanged. "
+                            "Clear the fault and retry."
+                        ),
+                    }
+                )
+                continue
+
+            await send_message(
+                {
+                    "type": "command_status",
+                    "status": "completed",
+                }
+            )
 
     except WebSocketDisconnect:
         pass

@@ -24,9 +24,12 @@ export type Pose = {
 }
 
 export type RobotState = {
+  mode: RobotMode
   commandedPose: Pose
   actualPose: Pose
 }
+
+export type RobotMode = 'idle' | 'emergency_stopped'
 
 export type ActiveFault =
   | 'telemetry_delay'
@@ -42,6 +45,7 @@ type ServerMessage =
     type: 'robot_state'
     sequence: number
     observedAtMs: number
+    mode: RobotMode
     commandedPose: Pose
     actualPose: Pose
   }
@@ -107,6 +111,7 @@ export function useRobotSocket(url: string) {
         setTelemetryState(classifyTelemetry(age))
 
         setRobotState({
+          mode: message.mode,
           commandedPose: message.commandedPose,
           actualPose: message.actualPose,
         })
@@ -192,6 +197,20 @@ export function useRobotSocket(url: string) {
     })
   }, [send])
 
+  const emergencyStop = useCallback(() => {
+    send({
+      type: 'command',
+      command: 'emergency_stop',
+    })
+  }, [send])
+
+  const reset = useCallback(() => {
+    send({
+      type: 'command',
+      command: 'reset',
+    })
+  }, [send])
+
   return {
     connectionState,
     robotState,
@@ -205,5 +224,7 @@ export function useRobotSocket(url: string) {
     enableTelemetryDelay,
     enableInteractionFailure,
     clearFault,
+    emergencyStop,
+    reset,
   }
 }

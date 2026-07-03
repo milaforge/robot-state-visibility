@@ -13,17 +13,23 @@ export default function App() {
     commandStatus,
     failureMessage,
     telemetryState,
-    telemetryAgeMs,
     activeFault,
     moveForward,
     interact,
+    emergencyStop,
+    reset,
     enableTelemetryDelay,
     enableInteractionFailure,
     clearFault,
   } = useRobotSocket(websocketUrl)
 
-  const controlsDisabled =
-    connectionState !== 'live' || telemetryState === 'stale'
+  const emergencyStopped =
+    robotState?.mode === 'emergency_stopped'
+
+  const normalControlsDisabled =
+    connectionState !== 'live' ||
+    telemetryState === 'stale' ||
+    emergencyStopped
 
   return (
     <main>
@@ -37,8 +43,13 @@ export default function App() {
       <p>
         Telemetry:{' '}
         <strong>{telemetryState.toUpperCase()}</strong>
-        {/* {' — '}
-        {telemetryAgeMs} ms */}
+      </p>
+
+      <p>
+        Mode:{' '}
+        <strong>
+          {robotState?.mode.toUpperCase() ?? 'UNKNOWN'}
+        </strong>
       </p>
 
       <p>
@@ -69,7 +80,7 @@ export default function App() {
 
       <button
         type="button"
-        disabled={controlsDisabled}
+        disabled={normalControlsDisabled}
         onClick={moveForward}
       >
         Move forward
@@ -77,10 +88,28 @@ export default function App() {
 
       <button
         type="button"
-        disabled={controlsDisabled}
+        disabled={normalControlsDisabled}
         onClick={interact}
       >
         Interact
+      </button>
+
+      <button
+        type="button"
+        disabled={connectionState !== 'live'}
+        onClick={emergencyStop}
+      >
+        Simulated emergency stop
+      </button>
+
+      <button
+        type="button"
+        disabled={
+          connectionState !== 'live' || !emergencyStopped
+        }
+        onClick={reset}
+      >
+        Reset
       </button>
 
       <button

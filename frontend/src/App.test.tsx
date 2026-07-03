@@ -41,6 +41,40 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
+  it('keeps emergency stop available when telemetry is stale', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now() - 1100,
+        mode: 'idle',
+        commandedPose: { x: 1, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Move forward',
+      }),
+    ).toBeDisabled()
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Simulated emergency stop',
+      }),
+    ).toBeEnabled()
+  })
+
   it('shows a failure after an acknowledged interaction', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 
@@ -56,6 +90,7 @@ describe('App', () => {
 
       MockWebSocket.instance.emit({
         type: 'robot_state',
+        mode: 'idle',
         sequence: 1,
         observedAtMs: Date.now(),
         commandedPose: { x: 0, y: 0, heading: 0 },
@@ -122,6 +157,7 @@ describe('App', () => {
 
       MockWebSocket.instance.emit({
         type: 'robot_state',
+        mode: 'idle',
         sequence: 1,
         observedAtMs: Date.now() - 1100,
         commandedPose: { x: 0, y: 0, heading: 0 },
@@ -153,6 +189,7 @@ describe('App', () => {
 
       MockWebSocket.instance.emit({
         type: 'robot_state',
+        mode: 'idle',
         observedAtMs: Date.now(),
         sequence: 1,
         commandedPost: { x: 0, y: 0, heading: 0 },
@@ -182,6 +219,7 @@ describe('App', () => {
 
       MockWebSocket.instance.emit({
         type: 'robot_state',
+        mode: 'idle',
         sequence: 1,
         observedAtMs: Date.now(),
         commandedPose: { x: 1, y: 0, heading: 0 },
