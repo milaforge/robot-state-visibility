@@ -5,6 +5,13 @@
     "frontend:test": "pnpm --dir frontend test",
     "frontend:test:run": "pnpm --dir frontend test:run",
     "frontend:lint": "pnpm --dir frontend lint",
-    "frontend:build": "pnpm --dir frontend build"
+    "frontend:build": "pnpm --dir frontend build",
+    "backend:dev": "cd backend && uv run uvicorn app.main:app --reload",
+    "backend:test": "cd backend && uv run pytest",
+    "backend:lint": "cd backend && uv run ruff check .",
+    "backend:format": "cd backend && uv run ruff format .",
+    "test": "pnpm frontend:test:run && pnpm backend:test",
+    "lint": "pnpm frontend:lint && pnpm backend:lint",
+    "build": "pnpm frontend:build"
   }
 }
