@@ -28,7 +28,10 @@ export type RobotState = {
   actualPose: Pose
 }
 
-export type ActiveFault = 'telemetry_delay' | null
+export type ActiveFault =
+  | 'telemetry_delay'
+  | 'interaction_failure'
+  | null
 
 type ServerMessage =
   | {
@@ -45,10 +48,11 @@ type ServerMessage =
   | {
     type: 'command_status'
     status: CommandStatus
+    message?: string
   }
   | {
     type: 'fault_status'
-    fault: 'telemetry_delay'
+    fault: Exclude<ActiveFault, null>
     enabled: boolean
   }
 
@@ -64,6 +68,9 @@ export function useRobotSocket(url: string) {
 
   const [commandStatus, setCommandStatus] =
     useState<CommandStatus | null>(null)
+
+  const [failureMessage, setFailureMessage] =
+    useState<string | null>(null)
 
   const [telemetryState, setTelemetryState] =
     useState<TelemetryState>('stale')
@@ -107,6 +114,12 @@ export function useRobotSocket(url: string) {
 
       if (message.type === 'command_status') {
         setCommandStatus(message.status)
+
+        setFailureMessage(
+          message.status === 'failed'
+            ? message.message ?? 'Command failed.'
+            : null,
+        )
       }
 
       if (message.type === 'fault_status') {
@@ -118,7 +131,7 @@ export function useRobotSocket(url: string) {
 
     socket.onclose = () => {
       if (active) {
-      setConnectionState('disconnected')
+        setConnectionState('disconnected')
       }
     }
 
@@ -152,10 +165,24 @@ export function useRobotSocket(url: string) {
     })
   }, [send])
 
+  const interact = useCallback(() => {
+    send({
+      type: 'command',
+      command: 'interact',
+    })
+  }, [send])
+
   const enableTelemetryDelay = useCallback(() => {
     send({
       type: 'set_fault',
       fault: 'telemetry_delay',
+    })
+  }, [send])
+
+  const enableInteractionFailure = useCallback(() => {
+    send({
+      type: 'set_fault',
+      fault: 'interaction_failure',
     })
   }, [send])
 
@@ -169,11 +196,14 @@ export function useRobotSocket(url: string) {
     connectionState,
     robotState,
     commandStatus,
+    failureMessage,
     telemetryState,
     telemetryAgeMs,
     activeFault,
     moveForward,
+    interact,
     enableTelemetryDelay,
+    enableInteractionFailure,
     clearFault,
   }
 }

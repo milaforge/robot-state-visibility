@@ -41,6 +41,74 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
+  it('shows a failure after an acknowledged interaction', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now(),
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Enable interaction failure',
+      }),
+    )
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'fault_status',
+        fault: 'interaction_failure',
+        enabled: true,
+      })
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Interact',
+      }),
+    )
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        status: 'acknowledged',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        status: 'executing',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        status: 'failed',
+        message:
+          'Interaction did not complete. Robot state is unchanged. Clear the fault and retry.',
+      })
+    })
+
+    expect(screen.getByText('FAILED')).toBeInTheDocument()
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Interaction did not complete',
+    )
+  })
+
   it('disables movement when telemetry is stale', () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 

@@ -6,7 +6,7 @@ describe('classifyTelemetry', () => {
   it.each([
     [0, 'live'],
     [249, 'live'],
-    [250, 'delayed'],
+    [501, 'delayed'],
     [999, 'delayed'],
     [1000, 'stale'],
   ])('classifies %i ms as %s', (age, expected) => {

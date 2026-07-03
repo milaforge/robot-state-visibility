@@ -11,15 +11,18 @@ export default function App() {
     connectionState,
     robotState,
     commandStatus,
+    failureMessage,
     telemetryState,
     telemetryAgeMs,
     activeFault,
     moveForward,
+    interact,
     enableTelemetryDelay,
+    enableInteractionFailure,
     clearFault,
   } = useRobotSocket(websocketUrl)
 
-  const movementDisabled =
+  const controlsDisabled =
     connectionState !== 'live' || telemetryState === 'stale'
 
   return (
@@ -57,12 +60,16 @@ export default function App() {
       </p>
 
       <p>
-        Observed X: {robotState?.actualPose.x ?? 0}
+        Observed X: {robotState?.actualPose?.x ?? 0}
       </p>
+
+      {failureMessage && (
+        <p role="alert">{failureMessage}</p>
+      )}
 
       <button
         type="button"
-        disabled={movementDisabled}
+        disabled={controlsDisabled}
         onClick={moveForward}
       >
         Move forward
@@ -70,15 +77,34 @@ export default function App() {
 
       <button
         type="button"
-        onClick={
-          activeFault
-            ? clearFault
-            : enableTelemetryDelay
-        }
+        disabled={controlsDisabled}
+        onClick={interact}
       >
-        {activeFault
-          ? 'Clear telemetry delay'
-          : 'Enable telemetry delay'}
+        Interact
+      </button>
+
+      <button
+        type="button"
+        disabled={activeFault !== null}
+        onClick={enableTelemetryDelay}
+      >
+        Enable telemetry delay
+      </button>
+
+      <button
+        type="button"
+        disabled={activeFault !== null}
+        onClick={enableInteractionFailure}
+      >
+        Enable interaction failure
+      </button>
+
+      <button
+        type="button"
+        disabled={activeFault === null}
+        onClick={clearFault}
+      >
+        Clear fault
       </button>
     </main>
   )

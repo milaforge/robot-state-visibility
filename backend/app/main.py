@@ -22,7 +22,7 @@ async def robot_socket(websocket: WebSocket) -> None:
     commanded_x = 0
     actual_x = 0
     sequence = 0
-    telemetry_delay = False
+    active_fault: str | None = None
     fault_generation = 0
 
     send_lock = asyncio.Lock()
@@ -62,7 +62,7 @@ async def robot_socket(websocket: WebSocket) -> None:
             generation = fault_generation
             message = create_robot_state()
 
-            if telemetry_delay:
+            if active_fault == "telemetry_delay":
                 await asyncio.sleep(TELEMETRY_DELAY_SECONDS)
 
                 if generation != fault_generation:
@@ -85,7 +85,11 @@ async def robot_socket(websocket: WebSocket) -> None:
             message = await websocket.receive_json()
 
             if message.get("type") == "set_fault":
-                if message.get("fault") != "telemetry_delay":
+                fault = message.get("fault")
+                if fault not in {
+                    "telemetry_delay",
+                    "interaction_failure",
+                }:
                     await send_message(
                         {
                             "type": "error",
@@ -94,26 +98,36 @@ async def robot_socket(websocket: WebSocket) -> None:
                     )
                     continue
 
-                telemetry_delay = True
+                active_fault = fault
                 fault_generation += 1
 
                 await send_message(
                     {
                         "type": "fault_status",
-                        "fault": "telemetry_delay",
+                        "fault": fault,
                         "enabled": True,
                     }
                 )
                 continue
 
             if message.get("type") == "clear_fault":
-                telemetry_delay = False
+                if active_fault is None:
+                    await send_message(
+                        {
+                            "type": "error",
+                            "message": "No active fault",
+                        }
+                    )
+                    continue
+                
+                cleared_fault = active_fault
+                active_fault = None
                 fault_generation += 1
 
                 await send_message(
                     {
                         "type": "fault_status",
-                        "fault": "telemetry_delay",
+                        "fault": cleared_fault,
                         "enabled": False,
                     }
                 )
@@ -122,12 +136,21 @@ async def robot_socket(websocket: WebSocket) -> None:
 
             if (
                 message.get("type") != "command"
-                or message.get("command") != "move_forward"
             ):
                 await send_message(
                     {
                         "type": "error",
                         "message": "Unsupported command",
+                    }
+                )
+                continue
+            
+            command = message.get("command")
+            if command not in {"move_forward", "interact"}:
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "rejected",
                     }
                 )
                 continue
@@ -139,27 +162,52 @@ async def robot_socket(websocket: WebSocket) -> None:
                 }
             )
 
-            commanded_x += 1
-
             await send_message(
                 {
                     "type": "command_status",
                     "status": "executing",
                 }
             )
-            await send_robot_state()
+            
+            if command == "move_forward":
+                commanded_x += 1
+                await send_robot_state()
 
-            await asyncio.sleep(0.2)
+                await asyncio.sleep(0.2)
 
-            actual_x = commanded_x
-            await send_robot_state()
+                actual_x = commanded_x
+                await send_robot_state()
 
-            await send_message(
-                {
-                    "type": "command_status",
-                    "status": "completed",
-                }
-            )
+                await send_message(
+                    {
+                        "type": "command_status",
+                        "status": "completed",
+                    }
+                )
+                continue
+
+            elif command == "interact":
+                await asyncio.sleep(0.3)
+
+                if active_fault == "interaction_failure":
+                    await send_message(
+                        {
+                            "type": "command_status",
+                            "status": "failed",
+                            "message": (
+                                "Interaction did not complete. "
+                                "Robot state is unchanged. "
+                                "Clear the fault and retry."
+                            ),
+                        }
+                    )
+                else:
+                    await send_message(
+                        {
+                            "type": "command_status",
+                            "status": "completed",
+                        }
+                    )
 
     except WebSocketDisconnect:
         pass

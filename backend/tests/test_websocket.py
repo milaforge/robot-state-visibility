@@ -4,6 +4,29 @@ from app.main import app
 
 client = TestClient(app)
 
+def receive_matching(
+    websocket,
+    expected: dict,
+    *,
+    max_messages: int = 10,
+) -> dict:
+    received: list[dict] = []
+
+    for _ in range(max_messages):
+        message = websocket.receive_json()
+        received.append(message)
+
+        if all(
+            message.get(key) == value
+            for key, value in expected.items()
+        ):
+            return message
+
+    raise AssertionError(
+        f"Expected message not received: {expected}\n"
+        f"Received: {received}"
+    )
+
 def assert_robot_state(
     message: dict,
     commanded_x: int,
@@ -181,3 +204,61 @@ def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
 
         assert recovered["type"] == "robot_state"
         assert int(time.time() * 1000) - recovered["observedAtMs"] < 250
+
+def test_interaction_can_fail_after_acknowledgement() -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "set_fault",
+                "fault": "interaction_failure",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "fault_status",
+                "fault": "interaction_failure",
+                "enabled": True,
+            },
+        )
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "interact",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "acknowledged",
+            },
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "executing",
+            },
+        )
+
+        failed = receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "failed",
+            },
+        )
+
+        assert failed["message"] == (
+            "Interaction did not complete. "
+            "Robot state is unchanged. "
+            "Clear the fault and retry."
+        )
