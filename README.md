@@ -9,7 +9,9 @@ To separate operator intent, command status, observed state, and stale data.
 ## How 
 
 ```mermaid 
+
 flowchart TD
+
     A[Operator] -->|Interacts with| B[React UI]
     
     N["Not architectural recommendations; only for demonstration compactness"]
