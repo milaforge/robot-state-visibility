@@ -1,5 +1,6 @@
 {
   "name": "robot-state-visibility",
+  "version": "0.0.1",
   "scripts": {
     "frontend:dev": "pnpm --dir frontend dev",
     "frontend:test": "pnpm --dir frontend test",
