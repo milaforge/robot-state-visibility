@@ -13,5 +13,6 @@
     "test": "pnpm frontend:test:run && pnpm backend:test",
     "lint": "pnpm frontend:lint && pnpm backend:lint",
     "build": "pnpm frontend:build"
-  }
+  },
+  "packageManager": "pnpm@10.32.1"
 }
