@@ -1,0 +1,16 @@
+services:
+  frontend:
+    command: pnpm --dir frontend dev --host 0.0.0.0
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - ./frontend/index.html:/app/frontend/index.html
+      - ./frontend/vite.config.ts:/app/frontend/vite.config.ts
+
+  backend:
+    command: >
+      uv run uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    volumes:
+      - ./backend/app:/app/app

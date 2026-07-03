@@ -13,7 +13,10 @@
     "backend:format": "cd backend && uv run ruff format .",
     "test": "pnpm frontend:test:run && pnpm backend:test",
     "lint": "pnpm frontend:lint && pnpm backend:lint",
-    "build": "pnpm frontend:build"
+    "build": "pnpm frontend:build",
+    "dev": "docker compose -f compose.yml -f compose.dev.yml up",
+    "dev:build": "docker compose -f compose.yml -f compose.dev.yml up --build",
+    "dev:down": "docker compose -f compose.yml -f compose.dev.yml down"
   },
   "packageManager": "pnpm@10.32.1"
 }
