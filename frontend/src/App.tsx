@@ -207,69 +207,94 @@ export default function App() {
               : "control-panel"
           }
         >
-          <section className="primary-controls">
+          <header className="control-panel-header">
             <span className="section-label">Operator controls</span>
+            <span className="control-availability">
+              {normalControlsDisabled ? "Locked" : "Ready"}
+            </span>
+          </header>
 
-            <button
-              className={[
-                "action-button",
-                "action-button--primary",
-                moveBusy ? "action-button--busy" : "",
-                moveFailed ? "action-button--failed" : "",
-              ].join(" ")}
-              type="button"
-              disabled={normalControlsDisabled || commandBusy}
-              onClick={moveForward}
-            >
-              <span className="action-icon">
-                {moveBusy ? <i className="command-spinner" /> : "↑"}
-              </span>
+          <section
+            className="control-zone control-zone--motion"
+            aria-labelledby="motion-controls-title"
+          >
+            <header className="control-zone-header">
+              <h3 id="motion-controls-title">Motion</h3>
+              <span>One command at a time</span>
+            </header>
 
-              <span>
-                <strong>
-                  {moveBusy
-                    ? "Moving"
-                    : moveFailed
-                      ? "Movement failed"
-                      : "Move forward"}
-                </strong>
+            <div className="motion-pad">
+              <button
+                className={[
+                  "motion-control",
+                  "motion-control--forward",
+                  moveBusy ? "motion-control--busy" : "",
+                  moveFailed ? "motion-control--failed" : "",
+                ].join(" ")}
+                type="button"
+                disabled={normalControlsDisabled || commandBusy}
+                onClick={moveForward}
+              >
+                <span className="motion-control-icon">
+                  {moveBusy ? <i className="command-spinner" /> : "↑"}
+                </span>
 
-                <small>
-                  {moveBusy
-                    ? "Following commanded position"
-                    : "Advance one unit"}
-                </small>
-              </span>
-            </button>
+                <span className="motion-control-copy">
+                  <strong>
+                    {moveBusy
+                      ? "Moving forward"
+                      : moveFailed
+                        ? "Movement failed"
+                        : "Move forward"}
+                  </strong>
 
-            <button
-              className={[
-                "action-button",
-                rotationBusy ? "action-button--busy" : "",
-                rotationFailed ? "action-button--failed" : "",
-              ].join(" ")}
-              type="button"
-              disabled={normalControlsDisabled || commandBusy}
-              onClick={rotateRight}
-            >
-              <span className="action-icon">
-                {rotationBusy ? <i className="command-spinner" /> : "↻"}
-              </span>
+                  <small>
+                    {moveBusy ? "Executing command" : "Advance one unit"}
+                  </small>
+                </span>
+              </button>
 
-              <span>
-                <strong>
-                  {rotationBusy
-                    ? "Rotating"
-                    : rotationFailed
-                      ? "Rotation failed"
-                      : "Rotate right"}
-                </strong>
+              <button
+                className={[
+                  "motion-control",
+                  "motion-control--rotate",
+                  rotationBusy ? "motion-control--busy" : "",
+                  rotationFailed ? "motion-control--failed" : "",
+                ].join(" ")}
+                type="button"
+                disabled={normalControlsDisabled || commandBusy}
+                onClick={rotateRight}
+              >
+                <span className="motion-control-icon">
+                  {rotationBusy ? <i className="command-spinner" /> : "↻"}
+                </span>
 
-                <small>
-                  {rotationBusy ? "Turning toward 90°" : "Rotate 90° clockwise"}
-                </small>
-              </span>
-            </button>
+                <span className="motion-control-copy">
+                  <strong>
+                    {rotationBusy
+                      ? "Rotating right"
+                      : rotationFailed
+                        ? "Rotation failed"
+                        : "Rotate right"}
+                  </strong>
+
+                  <small>
+                    {rotationBusy
+                      ? "Executing command"
+                      : "Rotate 90° clockwise"}
+                  </small>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section
+            className="control-zone control-zone--safety"
+            aria-labelledby="safety-controls-title"
+          >
+            <header className="control-zone-header">
+              <h3 id="safety-controls-title">Safety</h3>
+            </header>
 
             <button
               type="button"
@@ -288,7 +313,7 @@ export default function App() {
             >
               <span className="panel-stop-icon" />
 
-              <span>
+              <span className="panel-stop-copy">
                 <strong>
                   {emergencyStopped
                     ? "Emergency stop active"
@@ -298,113 +323,127 @@ export default function App() {
                 <small>
                   {emergencyStopped
                     ? "Press to release"
-                    : "Interrupt active command"}
+                    : "Interrupt the active command"}
                 </small>
+              </span>
+
+              <span className="panel-stop-state" aria-hidden="true">
+                {emergencyStopped ? "ACTIVE" : "READY"}
               </span>
             </button>
           </section>
 
-          <div className="scenario-menu">
-            <button
-              type="button"
-              className={
-                activeFault
-                  ? "scenario-launcher scenario-launcher--active"
-                  : "scenario-launcher"
-              }
-              aria-expanded={scenarioMenuOpen}
-              aria-controls="scenario-popover"
-              onClick={() => setScenarioMenuOpen((current) => !current)}
-            >
-              <span className="scenario-launcher-icon">⌘</span>
+          <section
+            className="control-zone control-zone--settings"
+            aria-labelledby="settings-controls-title"
+          >
+            <header className="control-zone-header">
+              <h3 id="settings-controls-title">Settings</h3>
+            </header>
 
-              <span className="scenario-launcher-copy">
-                <strong>Demo scenarios</strong>
-                <small>
-                  {activeFault
-                    ? formatToken(activeFault)
-                    : `${demoScenarios.length} available`}
-                </small>
-              </span>
-
-              {activeFault && (
-                <span
-                  className="scenario-launcher-dot"
-                  aria-label="Scenario active"
-                />
-              )}
-
-              <span
+            <div className="scenario-menu">
+              <button
+                type="button"
                 className={
-                  scenarioMenuOpen
-                    ? "scenario-launcher-chevron scenario-launcher-chevron--open"
-                    : "scenario-launcher-chevron"
+                  activeFault
+                    ? "scenario-launcher scenario-launcher--active"
+                    : "scenario-launcher"
                 }
-                aria-hidden="true"
+                aria-expanded={scenarioMenuOpen}
+                aria-controls="scenario-popover"
+                onClick={() => setScenarioMenuOpen((current) => !current)}
               >
-                ›
-              </span>
-            </button>
+                <span className="scenario-launcher-icon">⚙</span>
 
-            {scenarioMenuOpen && (
-              <div id="scenario-popover" className="scenario-menu-popover">
-                <header className="scenario-menu-header">
-                  <div>
-                    <strong>Demo scenarios</strong>
-                    <small>One scenario can be active</small>
-                  </div>
-                  <span>{demoScenarios.length}</span>
-                </header>
+                <span className="scenario-launcher-copy">
+                  <strong>Demo scenarios</strong>
+                  <small>
+                    {activeFault
+                      ? formatToken(activeFault)
+                      : `${demoScenarios.length} available`}
+                  </small>
+                </span>
 
-                <div className="scenario-menu-list">
-                  {demoScenarios.map((scenario) => {
-                    const active = activeFault === scenario.id;
+                {activeFault && (
+                  <span
+                    className="scenario-launcher-dot"
+                    aria-label="Scenario active"
+                  />
+                )}
 
-                    return (
-                      <button
-                        key={scenario.id}
-                        type="button"
-                        role="switch"
-                        aria-checked={active}
-                        className="scenario-menu-item"
-                        onMouseEnter={() =>
-                          setScenarioHint(scenario.description)
-                        }
-                        onMouseLeave={() => setScenarioHint(null)}
-                        onFocus={() => setScenarioHint(scenario.description)}
-                        onBlur={() => setScenarioHint(null)}
-                        onClick={() => toggleFault(scenario.id)}
-                      >
-                        <span className="scenario-menu-icon">
-                          {scenario.icon}
-                        </span>
-
-                        <span className="scenario-menu-label">
-                          <strong>{scenario.label}</strong>
-                          <small>{active ? "Active" : "Disabled"}</small>
-                        </span>
-
-                        <span className="mini-switch" aria-hidden="true">
-                          <span />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div
+                <span
                   className={
-                    scenarioHint
-                      ? "scenario-tooltip scenario-tooltip--visible"
-                      : "scenario-tooltip"
+                    scenarioMenuOpen
+                      ? "scenario-launcher-chevron scenario-launcher-chevron--open"
+                      : "scenario-launcher-chevron"
                   }
-                  role="tooltip"
+                  aria-hidden="true"
                 >
-                  {scenarioHint ?? "Select a deterministic failure scenario."}
+                  ›
+                </span>
+              </button>
+
+              {scenarioMenuOpen && (
+                <div id="scenario-popover" className="scenario-menu-popover">
+                  <header className="scenario-menu-header">
+                    <div>
+                      <strong>Demo scenarios</strong>
+                      <small>One scenario can be active</small>
+                    </div>
+
+                    <span>{demoScenarios.length}</span>
+                  </header>
+
+                  <div className="scenario-menu-list">
+                    {demoScenarios.map((scenario) => {
+                      const active = activeFault === scenario.id;
+
+                      return (
+                        <button
+                          key={scenario.id}
+                          type="button"
+                          role="switch"
+                          aria-checked={active}
+                          className="scenario-menu-item"
+                          onMouseEnter={() =>
+                            setScenarioHint(scenario.description)
+                          }
+                          onMouseLeave={() => setScenarioHint(null)}
+                          onFocus={() => setScenarioHint(scenario.description)}
+                          onBlur={() => setScenarioHint(null)}
+                          onClick={() => toggleFault(scenario.id)}
+                        >
+                          <span className="scenario-menu-icon">
+                            {scenario.icon}
+                          </span>
+
+                          <span className="scenario-menu-label">
+                            <strong>{scenario.label}</strong>
+                            <small>{active ? "Active" : "Disabled"}</small>
+                          </span>
+
+                          <span className="mini-switch" aria-hidden="true">
+                            <span />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    className={
+                      scenarioHint
+                        ? "scenario-tooltip scenario-tooltip--visible"
+                        : "scenario-tooltip"
+                    }
+                    role="tooltip"
+                  >
+                    {scenarioHint ?? "Select a deterministic failure scenario."}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          </section>
 
           <p className="safety-note">
             Stop control is simulated and not safety-rated.
