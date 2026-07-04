@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   classifyTelemetry,
+  computeTelemetryAge,
   type TelemetryState,
 } from './telemetry'
+import { isCommandProblem } from './utils'
 
 export type ConnectionState =
   | 'connecting'
@@ -119,10 +121,7 @@ export function useRobotSocket(url: string) {
       if (message.type === 'robot_state') {
         observedAtRef.current = message.observedAtMs
 
-        const age = Math.max(
-          0,
-          Date.now() - message.observedAtMs,
-        )
+        const age = computeTelemetryAge(message.observedAtMs)
 
         setTelemetryAgeMs(age)
         setTelemetryState(classifyTelemetry(age))
@@ -137,13 +136,8 @@ export function useRobotSocket(url: string) {
       if (message.type === 'command_status') {
         setCommandStatus(message.status)
 
-        const hasProblem =
-          message.status === 'failed' ||
-          message.status === 'aborted' ||
-          message.status === 'rejected'
-
         setFailureMessage(
-          hasProblem
+          isCommandProblem(message.status)
             ? message.message ?? 'Command did not complete.'
             : null,
         )
@@ -169,10 +163,7 @@ export function useRobotSocket(url: string) {
     const timer = window.setInterval(() => {
       if (observedAtRef.current === null) return
 
-      const age = Math.max(
-        0,
-        Date.now() - observedAtRef.current,
-      )
+      const age = computeTelemetryAge(observedAtRef.current)
 
       setTelemetryAgeMs(age)
       setTelemetryState(classifyTelemetry(age))
@@ -208,6 +199,7 @@ export function useRobotSocket(url: string) {
     },
     [send],
   )
+
   const moveForward = useCallback(() => {
     sendCommand('move_forward')
   }, [sendCommand])
@@ -216,24 +208,15 @@ export function useRobotSocket(url: string) {
     sendCommand('rotate_right')
   }, [sendCommand])
 
-  const enableTelemetryDelay = useCallback(() => {
-    send({
-      type: 'set_fault',
-      fault: 'telemetry_delay',
-    })
-  }, [send])
-
-  const enableInteractionFailure = useCallback(() => {
-    send({
-      type: 'set_fault',
-      fault: 'rotation_failure',
-    })
-  }, [send])
+  const enableFault = useCallback(
+    (fault: Exclude<ActiveFault, null>) => {
+      send({ type: 'set_fault', fault })
+    },
+    [send],
+  )
 
   const clearFault = useCallback(() => {
-    send({
-      type: 'clear_fault',
-    })
+    send({ type: 'clear_fault' })
   }, [send])
 
   const emergencyStop = useCallback(() => {
@@ -255,8 +238,7 @@ export function useRobotSocket(url: string) {
     sentCommand,
     moveForward,
     rotateRight,
-    enableTelemetryDelay,
-    enableInteractionFailure,
+    enableFault,
     clearFault,
     emergencyStop,
     reset,

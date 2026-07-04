@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
 import EventLog from "./EventLog";
+import { MotionControlButton } from "./MotionControlButton";
 import RobotView from "./RobotView";
+import { useClickOutside } from "./useClickOutside";
 import { useEventHistory } from "./useEventHistory";
 import { useRobotSocket } from "./useRobotSocket";
+import { formatToken, isCommandProblem } from "./utils";
 
 const websocketUrl =
   import.meta.env.VITE_WEBSOCKET_URL ?? "ws://localhost:8000/ws";
@@ -30,10 +33,6 @@ const demoScenarios: Array<{
   },
 ];
 
-function formatToken(value: string) {
-  return value.replaceAll("_", " ");
-}
-
 export default function App() {
   const [eventsOpen, setEventsOpen] = useState(false);
   const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
@@ -53,8 +52,7 @@ export default function App() {
     rotateRight,
     emergencyStop,
     reset,
-    enableTelemetryDelay,
-    enableInteractionFailure: enableRotationFailure,
+    enableFault,
     clearFault,
   } = useRobotSocket(websocketUrl);
 
@@ -77,9 +75,7 @@ export default function App() {
     commandStatus === "acknowledged" || commandStatus === "executing";
 
   const commandProblem =
-    commandStatus === "failed" ||
-    commandStatus === "aborted" ||
-    commandStatus === "rejected";
+    commandStatus !== null && isCommandProblem(commandStatus);
 
   const moveBusy = commandBusy && sentCommand?.command === "move_forward";
 
@@ -98,32 +94,14 @@ export default function App() {
     "--liveness-scale": livenessScale,
   } as CSSProperties;
 
-  useEffect(() => {
-    if (!scenarioMenuOpen) {
-      return;
-    }
-
-    function closeScenarioMenuOnOutsidePointer(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        scenarioMenuRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
+  useClickOutside(
+    scenarioMenuRef,
+    () => {
       setScenarioHint(null);
       setScenarioMenuOpen(false);
-    }
-
-    document.addEventListener("pointerdown", closeScenarioMenuOnOutsidePointer);
-
-    return () => {
-      document.removeEventListener(
-        "pointerdown",
-        closeScenarioMenuOnOutsidePointer,
-      );
-    };
-  }, [scenarioMenuOpen]);
+    },
+    scenarioMenuOpen,
+  );
 
   function toggleEmergencyStop() {
     if (emergencyStopped) {
@@ -140,12 +118,7 @@ export default function App() {
       return;
     }
 
-    if (fault === "telemetry_delay") {
-      enableTelemetryDelay();
-      return;
-    }
-
-    enableRotationFailure();
+    enableFault(fault);
   }
 
   return (
@@ -252,67 +225,31 @@ export default function App() {
             </header>
 
             <div className="motion-pad">
-              <button
-                className={[
-                  "motion-control",
-                  "motion-control--forward",
-                  moveBusy ? "motion-control--busy" : "",
-                  moveFailed ? "motion-control--failed" : "",
-                ].join(" ")}
-                type="button"
+              <MotionControlButton
+                modifier="forward"
+                icon="↑"
+                busy={moveBusy}
+                failed={moveFailed}
                 disabled={normalControlsDisabled || commandBusy}
+                idleLabel="Move forward"
+                busyLabel="Moving forward"
+                failedLabel="Movement failed"
+                idleHint="Advance one unit"
                 onClick={moveForward}
-              >
-                <span className="motion-control-icon">
-                  {moveBusy ? <i className="command-spinner" /> : "↑"}
-                </span>
+              />
 
-                <span className="motion-control-copy">
-                  <strong>
-                    {moveBusy
-                      ? "Moving forward"
-                      : moveFailed
-                        ? "Movement failed"
-                        : "Move forward"}
-                  </strong>
-
-                  <small>
-                    {moveBusy ? "Executing command" : "Advance one unit"}
-                  </small>
-                </span>
-              </button>
-
-              <button
-                className={[
-                  "motion-control",
-                  "motion-control--rotate",
-                  rotationBusy ? "motion-control--busy" : "",
-                  rotationFailed ? "motion-control--failed" : "",
-                ].join(" ")}
-                type="button"
+              <MotionControlButton
+                modifier="rotate"
+                icon="↻"
+                busy={rotationBusy}
+                failed={rotationFailed}
                 disabled={normalControlsDisabled || commandBusy}
+                idleLabel="Rotate right"
+                busyLabel="Rotating right"
+                failedLabel="Rotation failed"
+                idleHint="Rotate 90° clockwise"
                 onClick={rotateRight}
-              >
-                <span className="motion-control-icon">
-                  {rotationBusy ? <i className="command-spinner" /> : "↻"}
-                </span>
-
-                <span className="motion-control-copy">
-                  <strong>
-                    {rotationBusy
-                      ? "Rotating right"
-                      : rotationFailed
-                        ? "Rotation failed"
-                        : "Rotate right"}
-                  </strong>
-
-                  <small>
-                    {rotationBusy
-                      ? "Executing command"
-                      : "Rotate 90° clockwise"}
-                  </small>
-                </span>
-              </button>
+              />
             </div>
           </section>
 

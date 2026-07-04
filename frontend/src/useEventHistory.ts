@@ -44,11 +44,12 @@ export function useEventHistory({
   function append(
     category: EventCategory,
     title: string,
+    details?: string[],
   ) {
     const id = nextId.current++
 
     setEvents((current) =>
-      [{ id, category, title }, ...current].slice(0, 30),
+      [{ id, category, title, details }, ...current].slice(0, 30),
     )
 
     return id
@@ -57,19 +58,8 @@ export function useEventHistory({
   useEffect(() => {
     if (!sentCommand) return
 
-    const id = nextId.current++
-    const event: EventEntry = {
-      id,
-      category: 'command',
-      title: sentCommand.command,
-      details: [],
-    }
-
+    const id = append('command', sentCommand.command, [])
     activeCommandEventId.current = id
-
-    setEvents((current) =>
-      [event, ...current].slice(0, 30),
-    )
   }, [sentCommand])
 
   useEffect(() => {

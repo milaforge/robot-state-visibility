@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { EventEntry } from './useEventHistory'
+import { formatToken } from './utils'
 
 type EventLogProps = {
   events: EventEntry[]
   isOpen: boolean
   onClose: () => void
-}
-
-function formatToken(value: string) {
-  return value.replaceAll('_', ' ')
 }
 
 function statusClass(status: string) {
