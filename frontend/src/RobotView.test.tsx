@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import RobotView from './RobotView'
 
 describe('RobotView', () => {
-  it('renders commanded and observed positions separately', () => {
+  it('keeps the observed robot centered and offsets commanded state', () => {
     render(
       <RobotView
         robotState={{
@@ -24,11 +24,11 @@ describe('RobotView', () => {
     )
 
     expect(
-      screen.getByTestId('commanded-robot'),
-    ).toHaveAttribute('cx', '18')
+      screen.getByTestId('observed-robot'),
+    ).toHaveAttribute('cx', '50')
 
     expect(
-      screen.getByTestId('observed-robot'),
-    ).toHaveAttribute('cx', '14')
+      screen.getByTestId('commanded-robot'),
+    ).toHaveAttribute('cx', '56')
   })
 })

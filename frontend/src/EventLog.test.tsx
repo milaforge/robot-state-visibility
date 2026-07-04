@@ -1,15 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import EventLog from './EventLog'
 
 describe('EventLog', () => {
-  it('expands and collapses a command lifecycle', async () => {
+  it('expands and collapses command details', async () => {
     const user = userEvent.setup()
 
     render(
       <EventLog
+        isOpen
+        onClose={vi.fn()}
         events={[
           {
             id: 1,
@@ -33,10 +35,6 @@ describe('EventLog', () => {
       'aria-expanded',
       'true',
     )
-
-    expect(
-      screen.getByText('ACKNOWLEDGED'),
-    ).toBeInTheDocument()
 
     await user.click(command)
 

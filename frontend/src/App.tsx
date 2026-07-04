@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import EventLog from './EventLog'
 import RobotView from './RobotView'
 import { useEventHistory } from './useEventHistory'
@@ -9,10 +11,10 @@ const websocketUrl =
 
 type Tone = 'positive' | 'warning' | 'danger' | 'neutral'
 
-type StatusCardProps = {
+type StatusItemProps = {
+  icon: string
   label: string
   value: string
-  detail?: string
   tone?: Tone
 }
 
@@ -20,22 +22,27 @@ function formatToken(value: string) {
   return value.replaceAll('_', ' ')
 }
 
-function StatusCard({
+function StatusItem({
+  icon,
   label,
   value,
-  detail,
   tone = 'neutral',
-}: StatusCardProps) {
+}: StatusItemProps) {
   return (
-    <article className={`status-card status-card--${tone}`}>
-      <span>{label}</span>
-      <strong>{formatToken(value)}</strong>
-      {detail && <small>{detail}</small>}
-    </article>
+    <div className={`status-item status-item--${tone}`}>
+      <span className="status-icon">{icon}</span>
+
+      <span>
+        <small>{label}</small>
+        <strong>{formatToken(value)}</strong>
+      </span>
+    </div>
   )
 }
 
 export default function App() {
+  const [eventsOpen, setEventsOpen] = useState(false)
+
   const {
     connectionState,
     robotState,
@@ -70,242 +77,244 @@ export default function App() {
     telemetryState === 'stale' ||
     emergencyStopped
 
-  const connectionTone: Tone =
-    connectionState === 'live' ? 'positive' : 'danger'
-
-  const telemetryTone: Tone =
-    telemetryState === 'live'
-      ? 'positive'
-      : telemetryState === 'delayed'
-        ? 'warning'
-        : 'danger'
-
-  const modeTone: Tone = emergencyStopped
-    ? 'danger'
-    : 'neutral'
-
-  const commandTone: Tone =
-    commandStatus === 'completed'
-      ? 'positive'
-      : commandStatus === 'executing' ||
-          commandStatus === 'acknowledged'
-        ? 'warning'
-        : commandStatus === 'failed' ||
-            commandStatus === 'aborted' ||
-            commandStatus === 'rejected'
-          ? 'danger'
-          : 'neutral'
+  const commandProblem =
+    commandStatus === 'failed' ||
+    commandStatus === 'aborted' ||
+    commandStatus === 'rejected'
 
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
-          <p className="eyebrow">
-            Real-time operator experiment
-          </p>
+        <div className="brand">
+          <span className="brand-mark">R</span>
 
-          <h1>Robot State &amp; Command Visibility</h1>
-
-          <p className="app-description">
-            Separate intent, acknowledgement, observed
-            behavior, and uncertainty.
-          </p>
+          <div>
+            <h1>Robot State</h1>
+            <p>Intent versus observation</p>
+          </div>
         </div>
 
-        <div className="session-status">
-          <span
-            className={
-              connectionState === 'live'
-                ? 'session-indicator session-indicator--live'
-                : 'session-indicator'
-            }
-          />
+        <div className="header-actions">
+          <span className="live-session">
+            <i />
+            Live
+          </span>
 
-          {connectionState === 'live'
-            ? 'Live session'
-            : 'Session unavailable'}
+          <button
+            className="events-button"
+            type="button"
+            aria-label="Open recent events"
+            onClick={() => setEventsOpen(true)}
+          >
+            <span>☷</span>
+            Events
+            <strong>{events.length}</strong>
+          </button>
         </div>
       </header>
 
       <section
-        className="status-grid"
+        className="status-strip"
         aria-label="System status"
       >
-        <StatusCard
+        <StatusItem
+          icon="●"
           label="Connection"
           value={connectionState.toUpperCase()}
-          tone={connectionTone}
+          tone={
+            connectionState === 'live'
+              ? 'positive'
+              : 'danger'
+          }
         />
 
-        <StatusCard
+        <StatusItem
+          icon="◌"
           label="Telemetry"
-          value={telemetryState.toUpperCase()}
-          detail={`${telemetryAgeMs} ms old`}
-          tone={telemetryTone}
+          value={`${telemetryState.toUpperCase()} · ${telemetryAgeMs}ms`}
+          tone={
+            telemetryState === 'live'
+              ? 'positive'
+              : telemetryState === 'delayed'
+                ? 'warning'
+                : 'danger'
+          }
         />
 
-        <StatusCard
-          label="Robot mode"
+        <StatusItem
+          icon="◇"
+          label="Mode"
           value={
             robotState?.mode.toUpperCase() ?? 'UNKNOWN'
           }
-          tone={modeTone}
+          tone={emergencyStopped ? 'danger' : 'neutral'}
         />
 
-        <StatusCard
-          label="Latest command"
+        <StatusItem
+          icon="→"
+          label="Command"
           value={commandStatus?.toUpperCase() ?? 'IDLE'}
-          tone={commandTone}
+          tone={
+            commandProblem
+              ? 'danger'
+              : commandStatus === 'completed'
+                ? 'positive'
+                : commandStatus === 'executing'
+                  ? 'warning'
+                  : 'neutral'
+          }
         />
       </section>
 
-      {failureMessage && (
-        <div className="failure-alert" role="alert">
-          <strong>Command did not complete</strong>
-          <span>{failureMessage}</span>
-        </div>
-      )}
-
-      <div className="workspace-grid">
-        <section className="panel visualization-panel">
-          <header className="panel-header">
+      <section className="dashboard-main">
+        <section className="visualization-panel">
+          <header className="visualization-header">
             <div>
-              <p className="section-label">
-                Workcell
-              </p>
+              <span className="section-label">Workcell</span>
               <h2>Robot position</h2>
             </div>
 
-            <div className="position-values">
+            <div className="position-comparison">
               <span>
-                Commanded
-                <strong>
-                  {robotState?.commandedPose.x ?? 0}
-                </strong>
+                <i className="position-dot position-dot--commanded" />
+                {robotState?.commandedPose.x.toFixed(1) ?? '0.0'}
               </span>
 
               <span>
-                Observed
-                <strong>
-                  {robotState?.actualPose.x ?? 0}
-                </strong>
+                <i className="position-dot position-dot--observed" />
+                {robotState?.actualPose.x.toFixed(1) ?? '0.0'}
               </span>
             </div>
           </header>
 
           <RobotView robotState={robotState} />
+
+          {failureMessage && (
+            <div className="failure-alert" role="alert">
+              <span>!</span>
+
+              <div>
+                <strong>Command interrupted</strong>
+                <p>{failureMessage}</p>
+              </div>
+            </div>
+          )}
         </section>
 
-        <aside className="panel control-panel">
-          <header className="panel-header">
-            <div>
-              <p className="section-label">
-                Operator controls
-              </p>
-              <h2>Commands</h2>
-            </div>
-          </header>
+        <aside className="control-panel">
+          <section className="primary-controls">
+            <span className="section-label">
+              Operator controls
+            </span>
 
-          <section className="control-group">
-            <h3>Movement</h3>
+            <button
+              className="action-button action-button--primary"
+              type="button"
+              disabled={normalControlsDisabled}
+              onClick={moveForward}
+            >
+              <span className="action-icon">↑</span>
 
-            <div className="control-buttons">
-              <button
-                className="button button--primary"
-                type="button"
-                disabled={normalControlsDisabled}
-                onClick={moveForward}
-              >
-                Move forward
-              </button>
+              <span>
+                <strong>Move forward</strong>
+                <small>Advance one unit</small>
+              </span>
+            </button>
 
-              <button
-                className="button button--secondary"
-                type="button"
-                disabled={normalControlsDisabled}
-                onClick={interact}
-              >
-                Interact
-              </button>
-            </div>
+            <button
+              className="action-button"
+              type="button"
+              disabled={normalControlsDisabled}
+              onClick={interact}
+            >
+              <span className="action-icon">◎</span>
+
+              <span>
+                <strong>Interact</strong>
+                <small>Run target action</small>
+              </span>
+            </button>
           </section>
 
-          <section className="control-group">
-            <h3>Safety</h3>
+          <section className="safety-controls">
+            <button
+              className="emergency-button"
+              type="button"
+              disabled={connectionState !== 'live'}
+              onClick={emergencyStop}
+            >
+              <span>■</span>
+              Emergency stop
+            </button>
 
-            <div className="control-buttons">
-              <button
-                className="button button--danger"
-                type="button"
-                disabled={connectionState !== 'live'}
-                onClick={emergencyStop}
-              >
-                Emergency stop
-              </button>
-
-              <button
-                className="button button--secondary"
-                type="button"
-                disabled={
-                  connectionState !== 'live' ||
-                  !emergencyStopped
-                }
-                onClick={reset}
-              >
-                Reset
-              </button>
-            </div>
-
-            <small>
-              Simulated control. Not safety-rated.
-            </small>
+            <button
+              className="reset-button"
+              type="button"
+              disabled={
+                connectionState !== 'live' ||
+                !emergencyStopped
+              }
+              onClick={reset}
+            >
+              Reset
+            </button>
           </section>
 
-          <section className="control-group">
-            <h3>Fault injection</h3>
+          <details className="advanced-controls">
+            <summary>
+              <span>
+                <i>⚙</i>
+                Demo scenarios
+              </span>
 
-            <div className="control-buttons control-buttons--stacked">
+              <strong>
+                {activeFault
+                  ? formatToken(activeFault)
+                  : 'None active'}
+              </strong>
+            </summary>
+
+            <div className="advanced-content">
               <button
-                className="button button--secondary"
                 type="button"
                 disabled={activeFault !== null}
                 onClick={enableTelemetryDelay}
               >
-                Delay telemetry
+                <span>◷</span>
+                Enable telemetry delay
               </button>
 
               <button
-                className="button button--secondary"
                 type="button"
                 disabled={activeFault !== null}
                 onClick={enableInteractionFailure}
               >
-                Fail interaction
+                <span>×</span>
+                Enable interaction failure
               </button>
 
               <button
-                className="button button--ghost"
                 type="button"
                 disabled={activeFault === null}
                 onClick={clearFault}
               >
-                Clear active fault
+                <span>↺</span>
+                Clear fault
               </button>
             </div>
-          </section>
+          </details>
 
-          <div className="active-fault">
-            <span>Active fault</span>
-            <strong>
-              {activeFault
-                ? formatToken(activeFault).toUpperCase()
-                : 'NONE'}
-            </strong>
-          </div>
+          <p className="safety-note">
+            Emergency stop is simulated and not safety-rated.
+          </p>
         </aside>
-      </div>
+      </section>
 
-      <EventLog events={events} />
+      <EventLog
+        events={events}
+        isOpen={eventsOpen}
+        onClose={() => setEventsOpen(false)}
+      />
     </main>
   )
 }

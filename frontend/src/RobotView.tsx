@@ -4,44 +4,61 @@ type RobotViewProps = {
   robotState: RobotState | null
 }
 
-const SCALE = 8
-const ORIGIN_X = 10
-const CENTER_Y = 20
+const ROBOT_X = 50
+const CENTER_Y = 21
+const POSITION_SCALE = 12
+const GRID_SIZE = 12
 
-function toScreenX(x: number) {
-  return ORIGIN_X + x * SCALE
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(Math.max(value, minimum), maximum)
 }
 
 export default function RobotView({
   robotState,
 }: RobotViewProps) {
-  const commandedX = toScreenX(
-    robotState?.commandedPose.x ?? 0,
+  const actualX = robotState?.actualPose.x ?? 0
+  const commandedX = robotState?.commandedPose.x ?? 0
+
+  const commandedScreenX = clamp(
+    ROBOT_X + (commandedX - actualX) * POSITION_SCALE,
+    7,
+    93,
   )
 
-  const observedX = toScreenX(
-    robotState?.actualPose.x ?? 0,
-  )
+  const treadmillOffset =
+    -((actualX * POSITION_SCALE) % GRID_SIZE)
 
   return (
     <div className="robot-view">
       <svg
-        viewBox="0 0 100 40"
+        viewBox="0 0 100 42"
         role="img"
-        aria-label="Commanded and observed robot positions"
+        aria-label="Robot moving over a treadmill-style workcell"
       >
         <defs>
           <pattern
-            id="grid"
-            width="5"
-            height="5"
+            id="moving-grid"
+            width={GRID_SIZE}
+            height="8"
             patternUnits="userSpaceOnUse"
+            x={treadmillOffset}
           >
             <path
-              d="M 5 0 L 0 0 0 5"
+              d={`M ${GRID_SIZE} 0 L 0 0 0 8`}
               className="robot-grid-line"
             />
           </pattern>
+
+          <linearGradient
+            id="workcell-fade"
+            x1="0"
+            x2="1"
+          >
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="0.12" stopColor="transparent" />
+            <stop offset="0.88" stopColor="transparent" />
+            <stop offset="1" stopColor="#ffffff" />
+          </linearGradient>
         </defs>
 
         <rect
@@ -49,24 +66,25 @@ export default function RobotView({
           x="2"
           y="4"
           width="96"
-          height="32"
-          rx="2"
+          height="34"
+          rx="3"
         />
 
         <rect
+          data-testid="moving-grid"
           x="2"
           y="4"
           width="96"
-          height="32"
-          rx="2"
-          fill="url(#grid)"
+          height="34"
+          rx="3"
+          fill="url(#moving-grid)"
         />
 
         <line
           className="robot-track"
-          x1="7"
+          x1="4"
           y1={CENTER_Y}
-          x2="93"
+          x2="96"
           y2={CENTER_Y}
         />
 
@@ -74,25 +92,33 @@ export default function RobotView({
           data-testid="commanded-robot"
           aria-label="Commanded robot position"
           className="robot-commanded"
-          cx={commandedX}
+          cx={commandedScreenX}
           cy={CENTER_Y}
-          r="5"
+          r="6"
         />
 
         <circle
           data-testid="observed-robot"
           aria-label="Observed robot position"
           className="robot-observed"
-          cx={observedX}
+          cx={ROBOT_X}
           cy={CENTER_Y}
-          r="4"
+          r="4.5"
         />
 
         <circle
           className="robot-observed-center"
-          cx={observedX}
+          cx={ROBOT_X}
           cy={CENTER_Y}
-          r="1.4"
+          r="1.5"
+        />
+
+        <path
+          className="direction-marker"
+          d={`M ${ROBOT_X - 2} ${CENTER_Y + 8}
+              L ${ROBOT_X + 2} ${CENTER_Y + 8}
+              L ${ROBOT_X} ${CENTER_Y + 11}
+              Z`}
         />
       </svg>
 
@@ -105,6 +131,11 @@ export default function RobotView({
         <span>
           <i className="legend-marker legend-marker--commanded" />
           Commanded
+        </span>
+
+        <span className="world-position">
+          World X
+          <strong>{actualX.toFixed(1)}</strong>
         </span>
       </div>
     </div>
