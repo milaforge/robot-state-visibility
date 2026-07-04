@@ -180,6 +180,36 @@ describe('App', () => {
     ).toBeDisabled()
   })
 
+  it('closes the demo scenarios menu when clicking outside it', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: /Demo scenarios/,
+      }),
+    )
+
+    expect(
+      screen.getByRole('switch', {
+        name: /Telemetry delay/,
+      }),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByText('Stop control is simulated and not safety-rated.'),
+    )
+
+    expect(
+      screen.queryByRole('switch', {
+        name: /Telemetry delay/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows commanded and observed state separately', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 

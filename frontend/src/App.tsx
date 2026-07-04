@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import EventLog from "./EventLog";
 import RobotView from "./RobotView";
@@ -39,6 +39,7 @@ export default function App() {
   const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
   const [scenarioHint, setScenarioHint] = useState<string | null>(null);
   const [scenarioMenuOpen, setScenarioMenuOpen] = useState(false);
+  const scenarioMenuRef = useRef<HTMLDivElement | null>(null);
   const {
     connectionState,
     robotState,
@@ -96,6 +97,33 @@ export default function App() {
   const livenessStyle = {
     "--liveness-scale": livenessScale,
   } as CSSProperties;
+
+  useEffect(() => {
+    if (!scenarioMenuOpen) {
+      return;
+    }
+
+    function closeScenarioMenuOnOutsidePointer(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        scenarioMenuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setScenarioHint(null);
+      setScenarioMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeScenarioMenuOnOutsidePointer);
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        closeScenarioMenuOnOutsidePointer,
+      );
+    };
+  }, [scenarioMenuOpen]);
 
   function toggleEmergencyStop() {
     if (emergencyStopped) {
@@ -341,7 +369,7 @@ export default function App() {
               <h3 id="settings-controls-title">Settings</h3>
             </header>
 
-            <div className="scenario-menu">
+            <div className="scenario-menu" ref={scenarioMenuRef}>
               <button
                 type="button"
                 className={
