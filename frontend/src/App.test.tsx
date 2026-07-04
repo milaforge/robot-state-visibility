@@ -100,12 +100,12 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: /Demo scenarios/,
+        name: /Simulate Failure/,
       }),
     )
 
     await user.click(
-      screen.getByRole('switch', {
+      screen.getByRole('radio', {
         name: /Rotation failure/,
       }),
     )
@@ -189,22 +189,28 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: /Demo scenarios/,
+        name: /Simulate Failure/,
       }),
     )
 
     expect(
-      screen.getByRole('switch', {
+      screen.getByRole('radio', {
+        name: /None/,
+      }),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('radio', {
         name: /Telemetry delay/,
       }),
     ).toBeInTheDocument()
 
     await user.click(
-      screen.getByText('Stop control is simulated and not safety-rated.'),
+      screen.getByText(/Demonstration only; not safety control/),
     )
 
     expect(
-      screen.queryByRole('switch', {
+      screen.queryByRole('radio', {
         name: /Telemetry delay/,
       }),
     ).not.toBeInTheDocument()
@@ -317,7 +323,7 @@ describe('App', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'Robot State',
+        name: 'Robot Monitoring',
       }),
     ).toBeInTheDocument()
   })
@@ -514,11 +520,17 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: /Demo scenarios/,
+        name: /Simulate Failure/,
       }),
     )
 
-    const telemetryDelay = screen.getByRole('switch', {
+    const noFault = screen.getByRole('radio', {
+      name: /None/,
+    })
+
+    expect(noFault).toHaveAttribute('aria-checked', 'true')
+
+    const telemetryDelay = screen.getByRole('radio', {
       name: /Telemetry delay/,
     })
 
@@ -552,7 +564,9 @@ describe('App', () => {
       'true',
     )
 
-    await user.click(telemetryDelay)
+    expect(noFault).toHaveAttribute('aria-checked', 'false')
+
+    await user.click(noFault)
 
     sent =
       MockWebSocket.instance.sent[

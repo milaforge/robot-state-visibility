@@ -112,12 +112,7 @@ export default function App() {
     emergencyStop();
   }
 
-  function toggleFault(fault: ScenarioId) {
-    if (activeFault === fault) {
-      clearFault();
-      return;
-    }
-
+  function selectFault(fault: ScenarioId) {
     enableFault(fault);
   }
 
@@ -129,7 +124,7 @@ export default function App() {
             <span className="brand-mark">R</span>
 
             <div>
-              <h1>Robot State</h1>
+              <h1>Robot Monitoring</h1>
               <p>Intent versus observation</p>
             </div>
           </div>
@@ -183,7 +178,7 @@ export default function App() {
           <header className="visualization-header">
             <div>
               <span className="section-label">Workcell</span>
-              <h2>Robot position</h2>
+              <h2>Visualization</h2>
             </div>
           </header>
 
@@ -209,7 +204,7 @@ export default function App() {
           }
         >
           <header className="control-panel-header">
-            <span className="section-label">Operator controls</span>
+            <span className="section-label">Control</span>
             <span className="control-availability">
               {normalControlsDisabled ? "Locked" : "Ready"}
             </span>
@@ -221,7 +216,6 @@ export default function App() {
           >
             <header className="control-zone-header">
               <h3 id="motion-controls-title">Motion</h3>
-              <span>One command at a time</span>
             </header>
 
             <div className="motion-pad">
@@ -296,6 +290,10 @@ export default function App() {
                 {emergencyStopped ? "ACTIVE" : "READY"}
               </span>
             </button>
+
+            <p className="safety-note">
+              Demonstration only; not safety control.
+            </p>
           </section>
 
           <section
@@ -321,7 +319,7 @@ export default function App() {
                 <span className="scenario-launcher-icon">⚙</span>
 
                 <span className="scenario-launcher-copy">
-                  <strong>Demo scenarios</strong>
+                  <strong>Simulate Failure</strong>
                   <small>
                     {activeFault
                       ? formatToken(activeFault)
@@ -352,14 +350,38 @@ export default function App() {
                 <div id="scenario-popover" className="scenario-menu-popover">
                   <header className="scenario-menu-header">
                     <div>
-                      <strong>Demo scenarios</strong>
-                      <small>One scenario can be active</small>
+                      <strong>Simulate Failure</strong>
                     </div>
 
                     <span>{demoScenarios.length}</span>
                   </header>
 
-                  <div className="scenario-menu-list">
+                  <div className="scenario-menu-list" role="radiogroup">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={activeFault === null}
+                      className="scenario-menu-item"
+                      onMouseEnter={() => setScenarioHint(null)}
+                      onMouseLeave={() => setScenarioHint(null)}
+                      onFocus={() => setScenarioHint(null)}
+                      onBlur={() => setScenarioHint(null)}
+                      onClick={clearFault}
+                    >
+                      <span className="scenario-menu-icon">○</span>
+
+                      <span className="scenario-menu-label">
+                        <strong>None</strong>
+                        <small>
+                          {activeFault === null ? "Active" : "Available"}
+                        </small>
+                      </span>
+
+                      <span className="mini-radio" aria-hidden="true">
+                        <span />
+                      </span>
+                    </button>
+
                     {demoScenarios.map((scenario) => {
                       const active = activeFault === scenario.id;
 
@@ -367,7 +389,7 @@ export default function App() {
                         <button
                           key={scenario.id}
                           type="button"
-                          role="switch"
+                          role="radio"
                           aria-checked={active}
                           className="scenario-menu-item"
                           onMouseEnter={() =>
@@ -376,7 +398,7 @@ export default function App() {
                           onMouseLeave={() => setScenarioHint(null)}
                           onFocus={() => setScenarioHint(scenario.description)}
                           onBlur={() => setScenarioHint(null)}
-                          onClick={() => toggleFault(scenario.id)}
+                          onClick={() => selectFault(scenario.id)}
                         >
                           <span className="scenario-menu-icon">
                             {scenario.icon}
@@ -387,7 +409,7 @@ export default function App() {
                             <small>{active ? "Active" : "Disabled"}</small>
                           </span>
 
-                          <span className="mini-switch" aria-hidden="true">
+                          <span className="mini-radio" aria-hidden="true">
                             <span />
                           </span>
                         </button>
@@ -409,10 +431,6 @@ export default function App() {
               )}
             </div>
           </section>
-
-          <p className="safety-note">
-            Stop control is simulated and not safety-rated.
-          </p>
         </aside>
       </section>
 

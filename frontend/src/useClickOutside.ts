@@ -6,7 +6,10 @@ export function useClickOutside(
   enabled: boolean,
 ) {
   const callbackRef = useRef(onOutside)
-  callbackRef.current = onOutside
+
+  useEffect(() => {
+    callbackRef.current = onOutside
+  }, [onOutside])
 
   useEffect(() => {
     if (!enabled) return
