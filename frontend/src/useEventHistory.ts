@@ -58,18 +58,17 @@ export function useEventHistory({
     if (!sentCommand) return
 
     const id = nextId.current++
+    const event: EventEntry = {
+      id,
+      category: 'command',
+      title: sentCommand.command,
+      details: [],
+    }
+
     activeCommandEventId.current = id
 
     setEvents((current) =>
-      [
-        {
-          id,
-          category: 'command',
-          title: sentCommand.command,
-          details: [],
-        },
-        ...current,
-      ].slice(0, 30),
+      [event, ...current].slice(0, 30),
     )
   }, [sentCommand])
 

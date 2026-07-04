@@ -34,12 +34,12 @@ export type RobotMode = 'idle' | 'emergency_stopped'
 
 export type ActiveFault =
   | 'telemetry_delay'
-  | 'interaction_failure'
+  | 'rotation_failure'
   | null
 
 export type CommandName =
   | 'move_forward'
-  | 'interact'
+  | 'rotate_right'
   | 'emergency_stop'
   | 'reset'
 
@@ -153,6 +153,10 @@ export function useRobotSocket(url: string) {
         setActiveFault(
           message.enabled ? message.fault : null,
         )
+        if (!message.enabled) {
+          setCommandStatus(null)
+          setFailureMessage(null)
+        }
       }
     }
 
@@ -187,6 +191,9 @@ export function useRobotSocket(url: string) {
 
   const sendCommand = useCallback(
     (command: CommandName) => {
+      setCommandStatus(null)
+      setFailureMessage(null)
+
       sentCommandId.current += 1
 
       setSentCommand({
@@ -201,13 +208,12 @@ export function useRobotSocket(url: string) {
     },
     [send],
   )
-
   const moveForward = useCallback(() => {
     sendCommand('move_forward')
   }, [sendCommand])
 
-  const interact = useCallback(() => {
-    sendCommand('interact')
+  const rotateRight = useCallback(() => {
+    sendCommand('rotate_right')
   }, [sendCommand])
 
   const enableTelemetryDelay = useCallback(() => {
@@ -220,7 +226,7 @@ export function useRobotSocket(url: string) {
   const enableInteractionFailure = useCallback(() => {
     send({
       type: 'set_fault',
-      fault: 'interaction_failure',
+      fault: 'rotation_failure',
     })
   }, [send])
 
@@ -248,7 +254,7 @@ export function useRobotSocket(url: string) {
     activeFault,
     sentCommand,
     moveForward,
-    interact,
+    rotateRight,
     enableTelemetryDelay,
     enableInteractionFailure,
     clearFault,

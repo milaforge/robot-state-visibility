@@ -64,18 +64,18 @@ describe('App', () => {
 
     expect(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     ).toBeDisabled()
 
     expect(
-      screen.getByRole('button', {
+      screen.getByRole('switch', {
         name: 'Emergency stop',
       }),
     ).toBeEnabled()
   })
 
-  it('shows a failure after an acknowledged interaction', async () => {
+  it('shows a failure after an acknowledged rotation', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 
     const user = userEvent.setup()
@@ -100,21 +100,27 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Enable interaction failure',
+        name: /Demo scenarios/,
+      }),
+    )
+
+    await user.click(
+      screen.getByRole('switch', {
+        name: /Rotation failure/,
       }),
     )
 
     act(() => {
       MockWebSocket.instance.emit({
         type: 'fault_status',
-        fault: 'interaction_failure',
+        fault: 'rotation_failure',
         enabled: true,
       })
     })
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Interact',
+        name: /Rotate right/,
       }),
     )
 
@@ -133,14 +139,14 @@ describe('App', () => {
         type: 'command_status',
         status: 'failed',
         message:
-          'Interaction did not complete. Robot state is unchanged. Clear the fault and retry.',
+          'Rotation did not complete. Robot state is unchanged. Clear the fault and retry.',
       })
     })
 
-    expect(screen.getByText('FAILED')).toBeInTheDocument()
+    expect(screen.getAllByText('FAILED').length).toBeGreaterThan(0)
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Interaction did not complete',
+      'Rotation did not complete',
     )
   })
 
@@ -165,11 +171,11 @@ describe('App', () => {
       })
     })
 
-    expect(screen.getByText('STALE')).toBeInTheDocument()
+    expect(screen.getByText(/stale/i)).toBeInTheDocument()
 
     expect(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     ).toBeDisabled()
   })
@@ -192,17 +198,19 @@ describe('App', () => {
         mode: 'idle',
         observedAtMs: Date.now(),
         sequence: 1,
-        commandedPost: { x: 0, y: 0, heading: 0 },
+        commandedPose: { x: 0, y: 0, heading: 0 },
         actualPose: { x: 0, y: 0, heading: 0 },
       })
     })
 
-    expect(screen.getByText('Commanded X: 0')).toBeInTheDocument()
-    expect(screen.getByText('Observed X: 0')).toBeInTheDocument()
+    expect(screen.getByText('Commanded')).toBeInTheDocument()
+    expect(screen.getByText('Observed')).toBeInTheDocument()
+    expect(screen.getByText('X')).toBeInTheDocument()
+    expect(screen.getAllByText('0.0').length).toBeGreaterThan(0)
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     )
 
@@ -227,9 +235,11 @@ describe('App', () => {
       })
     })
 
-    expect(screen.getByText('Commanded X: 1')).toBeInTheDocument()
-    expect(screen.getByText('Observed X: 0')).toBeInTheDocument()
-    expect(screen.getByText('EXECUTING')).toBeInTheDocument()
+    expect(screen.getByTestId('commanded-robot')).toHaveStyle({
+      left: '60%',
+      top: '50%',
+    })
+    expect(screen.getAllByText('EXECUTING').length).toBeGreaterThan(0)
   })
 
   it('shows live when the backend reports a live connection', () => {
@@ -237,7 +247,7 @@ describe('App', () => {
 
     render(<App />)
 
-    expect(screen.getByText('CONNECTING')).toBeInTheDocument()
+    expect(screen.getByText('Offline')).toBeInTheDocument()
 
     act(() => {
       MockWebSocket.instance.emit({
@@ -246,7 +256,7 @@ describe('App', () => {
       })
     })
 
-    expect(screen.getByText('LIVE')).toBeInTheDocument()
+    expect(screen.getByText('Connection LIVE')).toBeInTheDocument()
   })
 
   it('shows connecting, live, then disconnected', () => {
@@ -254,7 +264,7 @@ describe('App', () => {
 
     render(<App />)
 
-    expect(screen.getByText('CONNECTING')).toBeInTheDocument()
+    expect(screen.getByText('Offline')).toBeInTheDocument()
 
     act(() => {
       MockWebSocket.instance.emit({
@@ -263,13 +273,13 @@ describe('App', () => {
       })
     })
 
-    expect(screen.getByText('LIVE')).toBeInTheDocument()
+    expect(screen.getByText('Connection LIVE')).toBeInTheDocument()
 
     act(() => {
       MockWebSocket.instance.disconnect()
     })
 
-    expect(screen.getByText('DISCONNECTED')).toBeInTheDocument()
+    expect(screen.getByText('Offline')).toBeInTheDocument()
   })
 
   it('renders the project title', () => {
@@ -277,7 +287,7 @@ describe('App', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'Robot State and Command Visibility',
+        name: 'Robot State',
       }),
     ).toBeInTheDocument()
   })
@@ -306,7 +316,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     )
 
@@ -327,7 +337,7 @@ describe('App', () => {
     })
 
     await user.click(
-      screen.getByRole('button', {
+      screen.getByRole('switch', {
         name: 'Emergency stop',
       }),
     )
@@ -350,12 +360,14 @@ describe('App', () => {
       })
     })
 
-    expect(screen.getByText('ABORTED')).toBeInTheDocument()
-    expect(screen.getByText('EMERGENCY STOPPED')).toBeInTheDocument()
+    expect(screen.getAllByText('ABORTED').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('Emergency stop active'),
+    ).toBeInTheDocument()
 
     expect(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     ).toBeDisabled()
   })
@@ -385,7 +397,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Move forward',
+        name: /Move forward/,
       }),
     )
 
@@ -470,12 +482,18 @@ describe('App', () => {
       command: 'reset',
     })
 
-    const telemetryDelay = screen.getByRole('button', {
+    await user.click(
+      screen.getByRole('button', {
+        name: /Demo scenarios/,
+      }),
+    )
+
+    const telemetryDelay = screen.getByRole('switch', {
       name: /Telemetry delay/,
     })
 
     expect(telemetryDelay).toHaveAttribute(
-      'aria-pressed',
+      'aria-checked',
       'false',
     )
 
@@ -500,7 +518,7 @@ describe('App', () => {
     })
 
     expect(telemetryDelay).toHaveAttribute(
-      'aria-pressed',
+      'aria-checked',
       'true',
     )
 
