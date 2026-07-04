@@ -161,7 +161,7 @@ async def robot_socket(websocket: WebSocket) -> None:
             if active_command_task is asyncio.current_task():
                 active_command_task = None
 
-    async def execute_interaction() -> None:
+    async def execute_rotation() -> None:
         nonlocal active_command_task
         nonlocal actual_heading
         nonlocal commanded_heading
@@ -173,7 +173,7 @@ async def robot_socket(websocket: WebSocket) -> None:
         try:
             await send_robot_state()
 
-            if active_fault == "interaction_failure":
+            if active_fault == "rotation_failure":
                 await asyncio.sleep(0.4)
 
                 await send_command_status(
@@ -238,7 +238,7 @@ async def robot_socket(websocket: WebSocket) -> None:
 
                 if fault not in {
                     "telemetry_delay",
-                    "interaction_failure",
+                    "rotation_failure",
                 }:
                     await send_message(
                         {
@@ -358,12 +358,12 @@ async def robot_socket(websocket: WebSocket) -> None:
                 )
                 continue
 
-            if command == "interact":
+            if command == "rotate_right":
                 await send_command_status("acknowledged")
                 await send_command_status("executing")
 
                 active_command_task = asyncio.create_task(
-                    execute_interaction()
+                    execute_rotation()
                 )
                 continue
 

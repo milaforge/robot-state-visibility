@@ -165,7 +165,7 @@ def test_interaction_can_fail_after_acknowledgement() -> None:
         websocket.send_json(
             {
                 "type": "set_fault",
-                "fault": "interaction_failure",
+                "fault": "rotation_failure",
             }
         )
 
@@ -173,7 +173,7 @@ def test_interaction_can_fail_after_acknowledgement() -> None:
             websocket,
             {
                 "type": "fault_status",
-                "fault": "interaction_failure",
+                "fault": "rotation_failure",
                 "enabled": True,
             },
         )
@@ -181,7 +181,7 @@ def test_interaction_can_fail_after_acknowledgement() -> None:
         websocket.send_json(
             {
                 "type": "command",
-                "command": "interact",
+                "command": "rotate_right",
             }
         )
 
@@ -238,9 +238,9 @@ def test_emergency_stop_interrupts_active_movement() -> None:
             if moving["type"] != "robot_state":
                 continue
 
-            observed_x = moving["actualPose"]["x"]
+            observed_y = moving["actualPose"]["y"]
 
-            if 0 < observed_x < 1:
+            if 0 < observed_y < 1:
                 break
 
         websocket.send_json(
@@ -276,10 +276,10 @@ def test_emergency_stop_interrupts_active_movement() -> None:
             },
         )
 
-        stopped_x = stopped["actualPose"]["x"]
+        stopped_y = stopped["actualPose"]["y"]
 
-        assert 0 < stopped_x < 1
-        assert stopped["commandedPose"]["x"] == stopped_x
+        assert 0 < stopped_y < 1
+        assert stopped["commandedPose"]["y"] == stopped_y
 
         receive_matching(
             websocket,
@@ -328,7 +328,7 @@ def test_interaction_rotates_robot_ninety_degrees_clockwise() -> None:
         websocket.send_json(
             {
                 "type": "command",
-                "command": "interact",
+                "command": "rotate_right",
             }
         )
 
@@ -383,7 +383,7 @@ def test_move_forward_uses_current_heading() -> None:
         websocket.send_json(
             {
                 "type": "command",
-                "command": "interact",
+                "command": "rotate_right",
             }
         )
 
