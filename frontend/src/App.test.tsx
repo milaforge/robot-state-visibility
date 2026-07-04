@@ -70,7 +70,7 @@ describe('App', () => {
 
     expect(
       screen.getByRole('button', {
-        name: 'Simulated emergency stop',
+        name: 'Emergency stop',
       }),
     ).toBeEnabled()
   })
@@ -328,7 +328,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Simulated emergency stop',
+        name: 'Emergency stop',
       }),
     )
 
@@ -392,6 +392,128 @@ describe('App', () => {
     expect(
       screen.getByText('MOVE FORWARD'),
     ).toBeInTheDocument()
+  })
+
+  it('toggles emergency stop and faults with one click', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now(),
+        mode: 'idle',
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    const emergencyStop = screen.getByRole('switch', {
+      name: 'Emergency stop',
+    })
+
+    expect(emergencyStop).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+
+    await user.click(emergencyStop)
+
+    let sent =
+      MockWebSocket.instance.sent[
+        MockWebSocket.instance.sent.length - 1
+      ]
+
+    expect(JSON.parse(sent)).toEqual({
+      type: 'command',
+      command: 'emergency_stop',
+    })
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 2,
+        observedAtMs: Date.now(),
+        mode: 'emergency_stopped',
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    const releaseStop = screen.getByRole('switch', {
+      name: 'Release emergency stop',
+    })
+
+    expect(releaseStop).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+
+    await user.click(releaseStop)
+
+    sent =
+      MockWebSocket.instance.sent[
+        MockWebSocket.instance.sent.length - 1
+      ]
+
+    expect(JSON.parse(sent)).toEqual({
+      type: 'command',
+      command: 'reset',
+    })
+
+    const telemetryDelay = screen.getByRole('button', {
+      name: /Telemetry delay/,
+    })
+
+    expect(telemetryDelay).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+
+    await user.click(telemetryDelay)
+
+    sent =
+      MockWebSocket.instance.sent[
+        MockWebSocket.instance.sent.length - 1
+      ]
+
+    expect(JSON.parse(sent)).toEqual({
+      type: 'set_fault',
+      fault: 'telemetry_delay',
+    })
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'fault_status',
+        fault: 'telemetry_delay',
+        enabled: true,
+      })
+    })
+
+    expect(telemetryDelay).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.click(telemetryDelay)
+
+    sent =
+      MockWebSocket.instance.sent[
+        MockWebSocket.instance.sent.length - 1
+      ]
+
+    expect(JSON.parse(sent)).toEqual({
+      type: 'clear_fault',
+    })
   })
 
 })

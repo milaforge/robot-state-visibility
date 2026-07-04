@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import {
+  useState,
+  type CSSProperties,
+} from 'react'
 
 import EventLog from './EventLog'
 import RobotView from './RobotView'
@@ -9,39 +12,14 @@ const websocketUrl =
   import.meta.env.VITE_WEBSOCKET_URL ??
   'ws://localhost:8000/ws'
 
-type Tone = 'positive' | 'warning' | 'danger' | 'neutral'
-
-type StatusItemProps = {
-  icon: string
-  label: string
-  value: string
-  tone?: Tone
-}
-
 function formatToken(value: string) {
   return value.replaceAll('_', ' ')
 }
 
-function StatusItem({
-  icon,
-  label,
-  value,
-  tone = 'neutral',
-}: StatusItemProps) {
-  return (
-    <div className={`status-item status-item--${tone}`}>
-      <span className="status-icon">{icon}</span>
-
-      <span>
-        <small>{label}</small>
-        <strong>{formatToken(value)}</strong>
-      </span>
-    </div>
-  )
-}
-
 export default function App() {
   const [eventsOpen, setEventsOpen] = useState(false)
+  const [connectionDetailsOpen, setConnectionDetailsOpen] =
+    useState(false)
 
   const {
     connectionState,
@@ -77,29 +55,134 @@ export default function App() {
     telemetryState === 'stale' ||
     emergencyStopped
 
+  const commandBusy =
+    commandStatus === 'acknowledged' ||
+    commandStatus === 'executing'
+
   const commandProblem =
     commandStatus === 'failed' ||
     commandStatus === 'aborted' ||
     commandStatus === 'rejected'
 
+  const moveBusy =
+    commandBusy &&
+    sentCommand?.command === 'move_forward'
+
+  const interactBusy =
+    commandBusy &&
+    sentCommand?.command === 'interact'
+
+  const moveFailed =
+    commandProblem &&
+    sentCommand?.command === 'move_forward'
+
+  const interactFailed =
+    commandProblem &&
+    sentCommand?.command === 'interact'
+
+  const livenessState =
+    connectionState !== 'live'
+      ? 'offline'
+      : telemetryState
+
+  const livenessScale = Math.min(
+    1 + telemetryAgeMs / 700,
+    2.4,
+  )
+
+  const livenessStyle = {
+    '--liveness-scale': livenessScale,
+  } as CSSProperties
+
+  function toggleEmergencyStop() {
+    if (emergencyStopped) {
+      reset()
+      return
+    }
+
+    emergencyStop()
+  }
+
+  function toggleFault(
+    fault: 'telemetry_delay' | 'interaction_failure',
+  ) {
+    if (activeFault === fault) {
+      clearFault()
+      return
+    }
+
+    if (fault === 'telemetry_delay') {
+      enableTelemetryDelay()
+      return
+    }
+
+    enableInteractionFailure()
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand">
-          <span className="brand-mark">R</span>
+        <div className="header-left">
+          <div className="brand">
+            <span className="brand-mark">R</span>
 
-          <div>
-            <h1>Robot State</h1>
-            <p>Intent versus observation</p>
+            <div>
+              <h1>Robot State</h1>
+              <p>Intent versus observation</p>
+            </div>
           </div>
+
+          <button
+            type="button"
+            className={`liveness-button liveness-button--${livenessState}`}
+            aria-label="Open connection details"
+            onClick={() => setConnectionDetailsOpen(true)}
+          >
+            <span
+              className="liveness-visual"
+              style={livenessStyle}
+            >
+              <i />
+              <b />
+            </span>
+
+            <span>
+              <small>System</small>
+              <strong>
+                {connectionState !== 'live'
+                  ? 'Offline'
+                  : telemetryState === 'live'
+                    ? 'Operational'
+                    : telemetryState}
+              </strong>
+            </span>
+          </button>
         </div>
 
-        <div className="header-actions">
-          <span className="live-session">
-            <i />
-            Live
-          </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={emergencyStopped}
+          aria-label={
+            emergencyStopped
+              ? 'Release emergency stop'
+              : 'Emergency stop'
+          }
+          className={
+            emergencyStopped
+              ? 'top-stop-button top-stop-button--active'
+              : 'top-stop-button'
+          }
+          disabled={connectionState !== 'live'}
+          onClick={toggleEmergencyStop}
+        >
+          <span className="media-stop-icon" />
+          <small>
+            {emergencyStopped ? 'STOPPED' : 'STOP'}
+          </small>
+        </button>
 
+        <div className="header-actions">
           <button
             className="events-button"
             type="button"
@@ -113,77 +196,20 @@ export default function App() {
         </div>
       </header>
 
-      <section
-        className="status-strip"
-        aria-label="System status"
-      >
-        <StatusItem
-          icon="●"
-          label="Connection"
-          value={connectionState.toUpperCase()}
-          tone={
-            connectionState === 'live'
-              ? 'positive'
-              : 'danger'
-          }
-        />
-
-        <StatusItem
-          icon="◌"
-          label="Telemetry"
-          value={`${telemetryState.toUpperCase()} · ${telemetryAgeMs}ms`}
-          tone={
-            telemetryState === 'live'
-              ? 'positive'
-              : telemetryState === 'delayed'
-                ? 'warning'
-                : 'danger'
-          }
-        />
-
-        <StatusItem
-          icon="◇"
-          label="Mode"
-          value={
-            robotState?.mode.toUpperCase() ?? 'UNKNOWN'
-          }
-          tone={emergencyStopped ? 'danger' : 'neutral'}
-        />
-
-        <StatusItem
-          icon="→"
-          label="Command"
-          value={commandStatus?.toUpperCase() ?? 'IDLE'}
-          tone={
-            commandProblem
-              ? 'danger'
-              : commandStatus === 'completed'
-                ? 'positive'
-                : commandStatus === 'executing'
-                  ? 'warning'
-                  : 'neutral'
-          }
-        />
-      </section>
-
       <section className="dashboard-main">
-        <section className="visualization-panel">
+        <section
+          className={
+            emergencyStopped
+              ? 'visualization-panel visualization-panel--emergency'
+              : 'visualization-panel'
+          }
+        >
           <header className="visualization-header">
             <div>
-              <span className="section-label">Workcell</span>
+              <span className="section-label">
+                Workcell
+              </span>
               <h2>Robot position</h2>
-            </div>
-
-            <div className="position-comparison">
-              <span>
-                <i className="position-dot position-dot--commanded" />
-                {robotState?.commandedPose.x.toFixed(1) ?? '0.0'}
-              </span>
-
-              <span>
-                <i className="position-dot position-dot--observed" />
-                {robotState?.actualPose.x.toFixed(1) ?? '0.0'}
-              </span>
             </div>
           </header>
 
@@ -194,121 +220,266 @@ export default function App() {
               <span>!</span>
 
               <div>
-                <strong>Command interrupted</strong>
+                <strong>Command did not complete</strong>
                 <p>{failureMessage}</p>
               </div>
             </div>
           )}
         </section>
 
-        <aside className="control-panel">
+        <aside
+          className={
+            emergencyStopped
+              ? 'control-panel control-panel--emergency'
+              : 'control-panel'
+          }
+        >
           <section className="primary-controls">
             <span className="section-label">
               Operator controls
             </span>
 
             <button
-              className="action-button action-button--primary"
-              type="button"
-              disabled={normalControlsDisabled}
-              onClick={moveForward}
-            >
-              <span className="action-icon">↑</span>
-
-              <span>
-                <strong>Move forward</strong>
-                <small>Advance one unit</small>
-              </span>
-            </button>
-
-            <button
-              className="action-button"
-              type="button"
-              disabled={normalControlsDisabled}
-              onClick={interact}
-            >
-              <span className="action-icon">◎</span>
-
-              <span>
-                <strong>Interact</strong>
-                <small>Run target action</small>
-              </span>
-            </button>
-          </section>
-
-          <section className="safety-controls">
-            <button
-              className="emergency-button"
-              type="button"
-              disabled={connectionState !== 'live'}
-              onClick={emergencyStop}
-            >
-              <span>■</span>
-              Emergency stop
-            </button>
-
-            <button
-              className="reset-button"
+              className={[
+                'action-button',
+                'action-button--primary',
+                moveBusy ? 'action-button--busy' : '',
+                moveFailed ? 'action-button--failed' : '',
+              ].join(' ')}
               type="button"
               disabled={
-                connectionState !== 'live' ||
-                !emergencyStopped
+                normalControlsDisabled || commandBusy
               }
-              onClick={reset}
+              onClick={moveForward}
             >
-              Reset
+              <span className="action-icon">
+                {moveBusy ? (
+                  <i className="command-spinner" />
+                ) : (
+                  '↑'
+                )}
+              </span>
+
+              <span>
+                <strong>
+                  {moveBusy
+                    ? 'Moving'
+                    : moveFailed
+                      ? 'Movement failed'
+                      : 'Move forward'}
+                </strong>
+
+                <small>
+                  {moveBusy
+                    ? 'Following commanded position'
+                    : 'Advance one unit'}
+                </small>
+              </span>
+            </button>
+
+            <button
+              className={[
+                'action-button',
+                interactBusy
+                  ? 'action-button--busy'
+                  : '',
+                interactFailed
+                  ? 'action-button--failed'
+                  : '',
+              ].join(' ')}
+              type="button"
+              disabled={
+                normalControlsDisabled || commandBusy
+              }
+              onClick={interact}
+            >
+              <span className="action-icon">
+                {interactBusy ? (
+                  <i className="command-spinner" />
+                ) : (
+                  '↻'
+                )}
+              </span>
+
+              <span>
+                <strong>
+                  {interactBusy
+                    ? 'Rotating'
+                    : interactFailed
+                      ? 'Rotation failed'
+                      : 'Rotate right'}
+                </strong>
+
+                <small>
+                  {interactBusy
+                    ? 'Turning toward 90°'
+                    : 'Rotate 90° clockwise'}
+                </small>
+              </span>
             </button>
           </section>
 
-          <details className="advanced-controls">
-            <summary>
+          <details className="scenario-panel">
+            <summary className="scenario-panel-header">
               <span>
                 <i>⚙</i>
                 Demo scenarios
               </span>
 
-              <strong>
+              <span
+                className={
+                  activeFault
+                    ? 'scenario-status scenario-status--active'
+                    : 'scenario-status'
+                }
+              >
                 {activeFault
                   ? formatToken(activeFault)
-                  : 'None active'}
-              </strong>
+                  : 'Off'}
+              </span>
             </summary>
 
-            <div className="advanced-content">
+            <div
+              className="scenario-selector"
+              aria-label="Demo scenarios"
+            >
               <button
                 type="button"
-                disabled={activeFault !== null}
-                onClick={enableTelemetryDelay}
+                className="scenario-option"
+                aria-pressed={
+                  activeFault === 'telemetry_delay'
+                }
+                onClick={() =>
+                  toggleFault('telemetry_delay')
+                }
               >
-                <span>◷</span>
-                Enable telemetry delay
+                <span className="scenario-radio">
+                  <span />
+                </span>
+
+                <span className="scenario-copy">
+                  <strong>Telemetry delay</strong>
+                  <small>
+                    Freshness degrades to stale
+                  </small>
+                </span>
+
+                <span className="scenario-symbol">
+                  ◷
+                </span>
               </button>
 
               <button
                 type="button"
-                disabled={activeFault !== null}
-                onClick={enableInteractionFailure}
+                className="scenario-option"
+                aria-pressed={
+                  activeFault === 'interaction_failure'
+                }
+                onClick={() =>
+                  toggleFault('interaction_failure')
+                }
               >
-                <span>×</span>
-                Enable interaction failure
-              </button>
+                <span className="scenario-radio">
+                  <span />
+                </span>
 
-              <button
-                type="button"
-                disabled={activeFault === null}
-                onClick={clearFault}
-              >
-                <span>↺</span>
-                Clear fault
+                <span className="scenario-copy">
+                  <strong>Interaction failure</strong>
+                  <small>
+                    Rotation fails after acceptance
+                  </small>
+                </span>
+
+                <span className="scenario-symbol">
+                  ×
+                </span>
               </button>
             </div>
           </details>
 
           <p className="safety-note">
-            Emergency stop is simulated and not safety-rated.
+            Stop control is simulated and not safety-rated.
           </p>
         </aside>
       </section>
+
+      {connectionDetailsOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() =>
+            setConnectionDetailsOpen(false)
+          }
+        >
+          <section
+            className="connection-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="connection-modal-title"
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <header>
+              <div>
+                <span className="section-label">
+                  Diagnostics
+                </span>
+                <h2 id="connection-modal-title">
+                  Connection details
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close connection details"
+                onClick={() =>
+                  setConnectionDetailsOpen(false)
+                }
+              >
+                ×
+              </button>
+            </header>
+
+            <dl className="connection-details">
+              <div>
+                <dt>Transport</dt>
+                <dd>{connectionState.toUpperCase()}</dd>
+              </div>
+
+              <div>
+                <dt>Telemetry freshness</dt>
+                <dd>{telemetryState.toUpperCase()}</dd>
+              </div>
+
+              <div>
+                <dt>Latest observation age</dt>
+                <dd>{telemetryAgeMs} ms</dd>
+              </div>
+
+              <div>
+                <dt>Robot mode</dt>
+                <dd>
+                  {robotState?.mode
+                    .replaceAll('_', ' ')
+                    .toUpperCase() ?? 'UNKNOWN'}
+                </dd>
+              </div>
+
+              <div>
+                <dt>Active fault</dt>
+                <dd>
+                  {activeFault
+                    ? formatToken(
+                        activeFault,
+                      ).toUpperCase()
+                    : 'NONE'}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      )}
 
       <EventLog
         events={events}

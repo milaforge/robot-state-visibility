@@ -66,14 +66,6 @@ def test_move_exposes_commanded_and_observed_state() -> None:
             websocket,
             {
                 "type": "command_status",
-                "status": "acknowledged",
-            },
-        )
-
-        receive_matching(
-            websocket,
-            {
-                "type": "command_status",
                 "status": "executing",
             },
         )
@@ -87,10 +79,12 @@ def test_move_exposes_commanded_and_observed_state() -> None:
             if message["type"] == "robot_state":
                 final_state = message
 
-                commanded = message["commandedPose"]["x"]
-                observed = message["actualPose"]["x"]
-
-                if commanded > observed:
+                if (
+                    message["commandedPose"]["x"]
+                    != message["actualPose"]["x"]
+                    or message["commandedPose"]["y"]
+                    != message["actualPose"]["y"]
+                ):
                     saw_tracking_difference = True
 
             if (
@@ -101,8 +95,9 @@ def test_move_exposes_commanded_and_observed_state() -> None:
 
     assert saw_tracking_difference
     assert final_state is not None
-    assert final_state["commandedPose"]["x"] == 1
-    assert final_state["actualPose"]["x"] == 1
+    assert final_state["actualPose"]["x"] == 0
+    assert final_state["actualPose"]["y"] == 1
+
 
 
 def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
@@ -323,3 +318,105 @@ def test_emergency_stop_interrupts_active_movement() -> None:
                 "mode": "idle",
             },
         )
+
+
+def test_interaction_rotates_robot_ninety_degrees_clockwise() -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "interact",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "acknowledged",
+            },
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "executing",
+            },
+        )
+
+        saw_commanded_rotation = False
+        final_state: dict[str, Any] | None = None
+
+        while True:
+            message = websocket.receive_json()
+
+            if message["type"] == "robot_state":
+                final_state = message
+
+                commanded = message["commandedPose"]["heading"]
+                observed = message["actualPose"]["heading"]
+
+                if commanded == 90 and observed < 90:
+                    saw_commanded_rotation = True
+
+            if (
+                message["type"] == "command_status"
+                and message["status"] == "completed"
+            ):
+                break
+
+    assert saw_commanded_rotation
+    assert final_state is not None
+    assert final_state["commandedPose"]["heading"] == 90
+    assert final_state["actualPose"]["heading"] == 90
+
+
+def test_move_forward_uses_current_heading() -> None:
+    with client.websocket_connect("/ws") as websocket:
+        websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "interact",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "completed",
+            },
+        )
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "move_forward",
+            }
+        )
+
+        final_state: dict[str, Any] | None = None
+
+        while True:
+            message = websocket.receive_json()
+
+            if message["type"] == "robot_state":
+                final_state = message
+
+            if (
+                message["type"] == "command_status"
+                and message["status"] == "completed"
+            ):
+                break
+
+    assert final_state is not None
+    assert final_state["actualPose"]["heading"] == 90
+    assert final_state["actualPose"]["x"] == 1
+    assert final_state["actualPose"]["y"] == 0
