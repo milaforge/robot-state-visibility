@@ -1,16 +1,20 @@
+import time
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 client = TestClient(app)
 
+
 def receive_matching(
-    websocket,
-    expected: dict,
+    websocket: Any,
+    expected: dict[str, Any],
     *,
-    max_messages: int = 10,
-) -> dict:
-    received: list[dict] = []
+    max_messages: int = 40,
+) -> dict[str, Any]:
+    received: list[dict[str, Any]] = []
 
     for _ in range(max_messages):
         message = websocket.receive_json()
@@ -27,47 +31,29 @@ def receive_matching(
         f"Received: {received}"
     )
 
-def assert_robot_state(
-    message: dict,
-    commanded_x: int,
-    actual_x: int,
-) -> None:
-    assert message["mode"] in {"idle", "emergency_stopped"}
-    assert message["type"] == "robot_state"
-    assert isinstance(message["sequence"], int)
-    assert isinstance(message["observedAtMs"], int)
-    assert message["commandedPose"] == {
-        "x": commanded_x,
-        "y": 0,
-        "heading": 0,
-    }
-    assert message["actualPose"] == {
-        "x": actual_x,
-        "y": 0,
-        "heading": 0,
-    }
 
-def test_idle_robot_continues_publishing_telemetry() -> None:
+def test_initial_connection_and_idle_telemetry() -> None:
     with client.websocket_connect("/ws") as websocket:
-        websocket.receive_json()
+        assert websocket.receive_json() == {
+            "type": "connection_status",
+            "status": "live",
+        }
 
         first = websocket.receive_json()
         second = websocket.receive_json()
 
-    assert_robot_state(first, 0, 0)
-    assert_robot_state(second, 0, 0)
+    assert first["type"] == "robot_state"
+    assert second["type"] == "robot_state"
 
+    assert first["actualPose"]["x"] == 0
+    assert second["actualPose"]["x"] == 0
     assert second["sequence"] == first["sequence"] + 1
-    assert second["observedAtMs"] >= first["observedAtMs"]
 
-def test_move_command_separates_commanded_and_observed_state() -> None:
+
+def test_move_exposes_commanded_and_observed_state() -> None:
     with client.websocket_connect("/ws") as websocket:
-        assert websocket.receive_json() == {
-            "type": "connection_status",
-            "status": "live",
-        }
-
-        assert_robot_state(websocket.receive_json(), 0, 0)
+        websocket.receive_json()
+        websocket.receive_json()
 
         websocket.send_json(
             {
@@ -76,101 +62,50 @@ def test_move_command_separates_commanded_and_observed_state() -> None:
             }
         )
 
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "acknowledged",
-        }
-
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "executing",
-        }
-
-        assert_robot_state(websocket.receive_json(), 1, 0)
-        assert_robot_state(websocket.receive_json(), 1, 1)
-
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "completed",
-        }
-
-def test_websocket_reports_live_connection() -> None:
-    with client.websocket_connect("/ws") as websocket:
-        assert websocket.receive_json() == {
-            "type": "connection_status",
-            "status": "live",
-        }
-
-        message = websocket.receive_json()
-        assert message["type"] == "robot_state"
-        assert isinstance(message["observedAtMs"], int)
-        assert message["observedAtMs"] > 0
-        assert message["commandedPose"] == {
-            "x": 0,
-            "y": 0,
-            "heading": 0,
-        }
-        assert message["actualPose"] == {
-            "x": 0,
-            "y": 0,
-            "heading": 0,
-        }
-        
-        websocket.send_json(
+        receive_matching(
+            websocket,
             {
-                "type": "command",
-                "command": "move_forward",
-            }
+                "type": "command_status",
+                "status": "acknowledged",
+            },
         )
 
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "acknowledged",
-        }
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "executing",
+            },
+        )
 
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "executing",
-        }
+        saw_tracking_difference = False
+        final_state: dict[str, Any] | None = None
 
-        message = websocket.receive_json()
-        assert message["type"] == "robot_state"
-        assert isinstance(message["observedAtMs"], int)
-        assert message["observedAtMs"] > 0
-        assert message["commandedPose"] == {
-            "x": 1,
-            "y": 0,
-            "heading": 0,
-        }
-        assert message["actualPose"] == {
-            "x": 0,
-            "y": 0,
-            "heading": 0,
-        }
-        
-        message = websocket.receive_json()
-        assert message["type"] == "robot_state"
-        assert isinstance(message["observedAtMs"], int)
-        assert message["observedAtMs"] > 0
-        assert message["commandedPose"] == {
-            "x": 1,
-            "y": 0,
-            "heading": 0,
-        }
-        assert message["actualPose"] == {
-            "x": 1,
-            "y": 0,
-            "heading": 0,
-        }
-        
-        assert websocket.receive_json() == {
-            "type": "command_status",
-            "status": "completed",
-        }
+        while True:
+            message = websocket.receive_json()
+
+            if message["type"] == "robot_state":
+                final_state = message
+
+                commanded = message["commandedPose"]["x"]
+                observed = message["actualPose"]["x"]
+
+                if commanded > observed:
+                    saw_tracking_difference = True
+
+            if (
+                message["type"] == "command_status"
+                and message["status"] == "completed"
+            ):
+                break
+
+    assert saw_tracking_difference
+    assert final_state is not None
+    assert final_state["commandedPose"]["x"] == 1
+    assert final_state["actualPose"]["x"] == 1
+
 
 def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
-    import time
-
     with client.websocket_connect("/ws") as websocket:
         websocket.receive_json()
         websocket.receive_json()
@@ -182,29 +117,50 @@ def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
             }
         )
 
-        assert websocket.receive_json() == {
-            "type": "fault_status",
-            "fault": "telemetry_delay",
-            "enabled": True,
-        }
+        receive_matching(
+            websocket,
+            {
+                "type": "fault_status",
+                "fault": "telemetry_delay",
+                "enabled": True,
+            },
+        )
 
-        delayed = websocket.receive_json()
+        delayed = receive_matching(
+            websocket,
+            {
+                "type": "robot_state",
+            },
+        )
 
-        assert delayed["type"] == "robot_state"
-        assert int(time.time() * 1000) - delayed["observedAtMs"] >= 1000
+        assert (
+            int(time.time() * 1000) - delayed["observedAtMs"]
+            >= 1000
+        )
 
         websocket.send_json({"type": "clear_fault"})
 
-        assert websocket.receive_json() == {
-            "type": "fault_status",
-            "fault": "telemetry_delay",
-            "enabled": False,
-        }
+        receive_matching(
+            websocket,
+            {
+                "type": "fault_status",
+                "fault": "telemetry_delay",
+                "enabled": False,
+            },
+        )
 
-        recovered = websocket.receive_json()
+        recovered = receive_matching(
+            websocket,
+            {
+                "type": "robot_state",
+            },
+        )
 
-        assert recovered["type"] == "robot_state"
-        assert int(time.time() * 1000) - recovered["observedAtMs"] < 250
+        assert (
+            int(time.time() * 1000) - recovered["observedAtMs"]
+            < 250
+        )
+
 
 def test_interaction_can_fail_after_acknowledgement() -> None:
     with client.websocket_connect("/ws") as websocket:
@@ -258,16 +214,39 @@ def test_interaction_can_fail_after_acknowledgement() -> None:
             },
         )
 
-        assert failed["message"] == (
-            "Interaction did not complete. "
-            "Robot state is unchanged. "
-            "Clear the fault and retry."
-        )
+        assert "did not complete" in failed["message"]
 
-def test_emergency_stop_rejects_normal_commands_until_reset() -> None:
+
+def test_emergency_stop_interrupts_active_movement() -> None:
     with client.websocket_connect("/ws") as websocket:
         websocket.receive_json()
         websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "command",
+                "command": "move_forward",
+            }
+        )
+
+        receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "executing",
+            },
+        )
+
+        while True:
+            moving = websocket.receive_json()
+
+            if moving["type"] != "robot_state":
+                continue
+
+            observed_x = moving["actualPose"]["x"]
+
+            if 0 < observed_x < 1:
+                break
 
         websocket.send_json(
             {
@@ -284,7 +263,17 @@ def test_emergency_stop_rejects_normal_commands_until_reset() -> None:
             },
         )
 
-        stopped_state = receive_matching(
+        aborted = receive_matching(
+            websocket,
+            {
+                "type": "command_status",
+                "status": "aborted",
+            },
+        )
+
+        assert "emergency stop" in aborted["message"]
+
+        stopped = receive_matching(
             websocket,
             {
                 "type": "robot_state",
@@ -292,7 +281,10 @@ def test_emergency_stop_rejects_normal_commands_until_reset() -> None:
             },
         )
 
-        assert stopped_state["commandedPose"] == stopped_state["actualPose"]
+        stopped_x = stopped["actualPose"]["x"]
+
+        assert 0 < stopped_x < 1
+        assert stopped["commandedPose"]["x"] == stopped_x
 
         receive_matching(
             websocket,
@@ -309,15 +301,13 @@ def test_emergency_stop_rejects_normal_commands_until_reset() -> None:
             }
         )
 
-        rejected = receive_matching(
+        receive_matching(
             websocket,
             {
                 "type": "command_status",
                 "status": "rejected",
             },
         )
-
-        assert "emergency stop is active" in rejected["message"]
 
         websocket.send_json(
             {

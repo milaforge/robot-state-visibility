@@ -281,4 +281,83 @@ describe('App', () => {
       }),
     ).toBeInTheDocument()
   })
+  it('shows when emergency stop interrupts movement', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now(),
+        mode: 'idle',
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Move forward',
+      }),
+    )
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        status: 'executing',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 2,
+        observedAtMs: Date.now(),
+        mode: 'idle',
+        commandedPose: { x: 1, y: 0, heading: 0 },
+        actualPose: { x: 0.3, y: 0, heading: 0 },
+      })
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Simulated emergency stop',
+      }),
+    )
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        status: 'aborted',
+        message:
+          'Movement was interrupted by the simulated emergency stop.',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 3,
+        observedAtMs: Date.now(),
+        mode: 'emergency_stopped',
+        commandedPose: { x: 0.3, y: 0, heading: 0 },
+        actualPose: { x: 0.3, y: 0, heading: 0 },
+      })
+    })
+
+    expect(screen.getByText('ABORTED')).toBeInTheDocument()
+    expect(screen.getByText('EMERGENCY_STOPPED')).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Move forward',
+      }),
+    ).toBeDisabled()
+  })
+
 })

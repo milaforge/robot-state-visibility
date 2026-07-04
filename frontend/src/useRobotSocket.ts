@@ -15,6 +15,7 @@ export type CommandStatus =
   | 'executing'
   | 'completed'
   | 'failed'
+  | 'aborted'
   | 'rejected'
 
 export type Pose = {
@@ -120,9 +121,14 @@ export function useRobotSocket(url: string) {
       if (message.type === 'command_status') {
         setCommandStatus(message.status)
 
+        const hasProblem =
+          message.status === 'failed' ||
+          message.status === 'aborted' ||
+          message.status === 'rejected'
+
         setFailureMessage(
-          message.status === 'failed'
-            ? message.message ?? 'Command failed.'
+          hasProblem
+            ? message.message ?? 'Command did not complete.'
             : null,
         )
       }

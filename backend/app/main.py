@@ -1,6 +1,7 @@
 import asyncio
 import time
 from contextlib import suppress
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -8,6 +9,10 @@ app = FastAPI()
 
 TELEMETRY_INTERVAL_SECONDS = 0.5
 TELEMETRY_DELAY_SECONDS = 1.2
+MOVEMENT_DURATION_SECONDS = 2.0
+MOVEMENT_STEPS = 10
+
+Message = dict[str, Any]
 
 
 @app.get("/api/health")
@@ -19,20 +24,35 @@ def health() -> dict[str, str]:
 async def robot_socket(websocket: WebSocket) -> None:
     await websocket.accept()
 
-    commanded_x = 0
-    actual_x = 0
+    commanded_x = 0.0
+    actual_x = 0.0
     sequence = 0
     mode = "idle"
     active_fault: str | None = None
     fault_generation = 0
+    active_command_task: asyncio.Task[None] | None = None
 
     send_lock = asyncio.Lock()
 
-    async def send_message(message: dict) -> None:
+    async def send_message(message: Message) -> None:
         async with send_lock:
             await websocket.send_json(message)
 
-    def create_robot_state() -> dict:
+    async def send_command_status(
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        payload: Message = {
+            "type": "command_status",
+            "status": status,
+        }
+
+        if message is not None:
+            payload["message"] = message
+
+        await send_message(payload)
+
+    def create_robot_state() -> Message:
         nonlocal sequence
 
         sequence += 1
@@ -71,6 +91,79 @@ async def robot_socket(websocket: WebSocket) -> None:
                     continue
 
             await send_message(message)
+
+    async def execute_move() -> None:
+        nonlocal active_command_task
+        nonlocal actual_x
+        nonlocal commanded_x
+
+        start_x = actual_x
+        target_x = round(start_x + 1, 2)
+        commanded_x = target_x
+
+        try:
+            await send_robot_state()
+
+            step_duration = (
+                MOVEMENT_DURATION_SECONDS / MOVEMENT_STEPS
+            )
+
+            for step in range(1, MOVEMENT_STEPS + 1):
+                await asyncio.sleep(step_duration)
+
+                progress = step / MOVEMENT_STEPS
+                actual_x = round(
+                    start_x + (target_x - start_x) * progress,
+                    2,
+                )
+
+                await send_robot_state()
+
+            await send_command_status("completed")
+
+        except asyncio.CancelledError:
+            commanded_x = actual_x
+
+            await send_command_status(
+                "aborted",
+                "Movement was interrupted by the simulated emergency stop.",
+            )
+
+            raise
+
+        finally:
+            if active_command_task is asyncio.current_task():
+                active_command_task = None
+
+    async def execute_interaction() -> None:
+        nonlocal active_command_task
+
+        try:
+            await asyncio.sleep(0.3)
+
+            if active_fault == "interaction_failure":
+                await send_command_status(
+                    "failed",
+                    (
+                        "Interaction did not complete. "
+                        "Robot state is unchanged. "
+                        "Clear the fault and retry."
+                    ),
+                )
+            else:
+                await send_command_status("completed")
+
+        except asyncio.CancelledError:
+            await send_command_status(
+                "aborted",
+                "Interaction was interrupted by the simulated emergency stop.",
+            )
+
+            raise
+
+        finally:
+            if active_command_task is asyncio.current_task():
+                active_command_task = None
 
     await send_message(
         {
@@ -150,123 +243,92 @@ async def robot_socket(websocket: WebSocket) -> None:
             command = message.get("command")
 
             if command == "emergency_stop":
-                mode = "emergency_stopped"
-                commanded_x = actual_x
+                await send_command_status("acknowledged")
 
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "acknowledged",
-                    }
-                )
+                mode = "emergency_stopped"
+                task = active_command_task
+
+                if task is not None and not task.done():
+                    task.cancel()
+
+                    with suppress(asyncio.CancelledError):
+                        await task
+
+                commanded_x = actual_x
                 await send_robot_state()
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "completed",
-                    }
-                )
+                await send_command_status("completed")
                 continue
 
             if command == "reset":
+                if mode != "emergency_stopped":
+                    await send_command_status(
+                        "rejected",
+                        "Reset is only available after an emergency stop.",
+                    )
+                    continue
+
                 mode = "idle"
 
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "acknowledged",
-                    }
-                )
+                await send_command_status("acknowledged")
                 await send_robot_state()
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "completed",
-                    }
-                )
+                await send_command_status("completed")
                 continue
 
             if mode == "emergency_stopped":
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "rejected",
-                        "message": (
-                            "Command rejected while emergency stop is active. "
-                            "Reset before issuing normal commands."
-                        ),
-                    }
+                await send_command_status(
+                    "rejected",
+                    (
+                        "Command rejected while emergency stop is active. "
+                        "Reset before issuing normal commands."
+                    ),
                 )
                 continue
 
-            if command not in {"move_forward", "interact"}:
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "rejected",
-                        "message": "Unsupported command.",
-                    }
+            if (
+                active_command_task is not None
+                and not active_command_task.done()
+            ):
+                await send_command_status(
+                    "rejected",
+                    "Another command is currently executing.",
                 )
                 continue
-
-            await send_message(
-                {
-                    "type": "command_status",
-                    "status": "acknowledged",
-                }
-            )
-
-            await send_message(
-                {
-                    "type": "command_status",
-                    "status": "executing",
-                }
-            )
 
             if command == "move_forward":
-                commanded_x += 1
-                await send_robot_state()
+                await send_command_status("acknowledged")
+                await send_command_status("executing")
 
-                await asyncio.sleep(0.2)
-
-                actual_x = commanded_x
-                await send_robot_state()
-
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "completed",
-                    }
+                active_command_task = asyncio.create_task(
+                    execute_move()
                 )
                 continue
 
-            await asyncio.sleep(0.3)
+            if command == "interact":
+                await send_command_status("acknowledged")
+                await send_command_status("executing")
 
-            if active_fault == "interaction_failure":
-                await send_message(
-                    {
-                        "type": "command_status",
-                        "status": "failed",
-                        "message": (
-                            "Interaction did not complete. "
-                            "Robot state is unchanged. "
-                            "Clear the fault and retry."
-                        ),
-                    }
+                active_command_task = asyncio.create_task(
+                    execute_interaction()
                 )
                 continue
 
-            await send_message(
-                {
-                    "type": "command_status",
-                    "status": "completed",
-                }
+            await send_command_status(
+                "rejected",
+                "Unsupported command.",
             )
 
     except WebSocketDisconnect:
         pass
+
     finally:
         telemetry_task.cancel()
 
-        with suppress(asyncio.CancelledError):
-            await telemetry_task
+        tasks = [telemetry_task]
+
+        if active_command_task is not None:
+            active_command_task.cancel()
+            tasks.append(active_command_task)
+
+        for task in tasks:
+            with suppress(asyncio.CancelledError, RuntimeError):
+                await task
