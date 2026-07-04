@@ -1,33 +1,48 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import EventLog from './EventLog'
 
 describe('EventLog', () => {
-  it('shows newest events first', () => {
+  it('expands and collapses a command lifecycle', async () => {
+    const user = userEvent.setup()
+
     render(
       <EventLog
         events={[
           {
-            id: 2,
-            message: 'Command: EXECUTING',
-          },
-          {
             id: 1,
-            message: 'Command: ACKNOWLEDGED',
+            category: 'command',
+            title: 'move_forward',
+            details: [
+              'ACKNOWLEDGED',
+              'EXECUTING',
+              'COMPLETED',
+            ],
           },
         ]}
       />,
     )
 
-    const events = screen.getAllByRole('listitem')
+    const command = screen.getByRole('button', {
+      name: /MOVE FORWARD/,
+    })
 
-    expect(events[0]).toHaveTextContent(
-      'Command: EXECUTING',
+    expect(command).toHaveAttribute(
+      'aria-expanded',
+      'true',
     )
 
-    expect(events[1]).toHaveTextContent(
-      'Command: ACKNOWLEDGED',
+    expect(
+      screen.getByText('ACKNOWLEDGED'),
+    ).toBeInTheDocument()
+
+    await user.click(command)
+
+    expect(command).toHaveAttribute(
+      'aria-expanded',
+      'false',
     )
   })
 })

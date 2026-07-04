@@ -37,6 +37,17 @@ export type ActiveFault =
   | 'interaction_failure'
   | null
 
+export type CommandName =
+  | 'move_forward'
+  | 'interact'
+  | 'emergency_stop'
+  | 'reset'
+
+export type SentCommand = {
+  id: number
+  command: CommandName
+}
+
 type ServerMessage =
   | {
     type: 'connection_status'
@@ -84,6 +95,11 @@ export function useRobotSocket(url: string) {
 
   const [activeFault, setActiveFault] =
     useState<ActiveFault>(null)
+
+  const sentCommandId = useRef(0)
+
+  const [sentCommand, setSentCommand] =
+    useState<SentCommand | null>(null)
 
   useEffect(() => {
     let active = true
@@ -169,19 +185,30 @@ export function useRobotSocket(url: string) {
     socketRef.current?.send(JSON.stringify(message))
   }, [])
 
+  const sendCommand = useCallback(
+    (command: CommandName) => {
+      sentCommandId.current += 1
+
+      setSentCommand({
+        id: sentCommandId.current,
+        command,
+      })
+
+      send({
+        type: 'command',
+        command,
+      })
+    },
+    [send],
+  )
+
   const moveForward = useCallback(() => {
-    send({
-      type: 'command',
-      command: 'move_forward',
-    })
-  }, [send])
+    sendCommand('move_forward')
+  }, [sendCommand])
 
   const interact = useCallback(() => {
-    send({
-      type: 'command',
-      command: 'interact',
-    })
-  }, [send])
+    sendCommand('interact')
+  }, [sendCommand])
 
   const enableTelemetryDelay = useCallback(() => {
     send({
@@ -204,18 +231,12 @@ export function useRobotSocket(url: string) {
   }, [send])
 
   const emergencyStop = useCallback(() => {
-    send({
-      type: 'command',
-      command: 'emergency_stop',
-    })
-  }, [send])
+    sendCommand('emergency_stop')
+  }, [sendCommand])
 
   const reset = useCallback(() => {
-    send({
-      type: 'command',
-      command: 'reset',
-    })
-  }, [send])
+    sendCommand('reset')
+  }, [sendCommand])
 
   return {
     connectionState,
@@ -225,6 +246,7 @@ export function useRobotSocket(url: string) {
     telemetryState,
     telemetryAgeMs,
     activeFault,
+    sentCommand,
     moveForward,
     interact,
     enableTelemetryDelay,

@@ -351,13 +351,47 @@ describe('App', () => {
     })
 
     expect(screen.getByText('ABORTED')).toBeInTheDocument()
-    expect(screen.getByText('EMERGENCY_STOPPED')).toBeInTheDocument()
+    expect(screen.getByText('EMERGENCY STOPPED')).toBeInTheDocument()
 
     expect(
       screen.getByRole('button', {
         name: 'Move forward',
       }),
     ).toBeDisabled()
+  })
+
+  it('records the command sent by the operator', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sequence: 1,
+        observedAtMs: Date.now(),
+        mode: 'idle',
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Move forward',
+      }),
+    )
+
+    expect(
+      screen.getByText('MOVE FORWARD'),
+    ).toBeInTheDocument()
   })
 
 })

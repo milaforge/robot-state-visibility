@@ -1,13 +1,39 @@
-import RobotView from './RobotView'
-import { useRobotSocket } from './useRobotSocket'
 import EventLog from './EventLog'
+import RobotView from './RobotView'
 import { useEventHistory } from './useEventHistory'
-
-const websocketProtocol =
-  window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+import { useRobotSocket } from './useRobotSocket'
 
 const websocketUrl =
-  `${websocketProtocol}//${window.location.host}/ws`
+  import.meta.env.VITE_WEBSOCKET_URL ??
+  'ws://localhost:8000/ws'
+
+type Tone = 'positive' | 'warning' | 'danger' | 'neutral'
+
+type StatusCardProps = {
+  label: string
+  value: string
+  detail?: string
+  tone?: Tone
+}
+
+function formatToken(value: string) {
+  return value.replaceAll('_', ' ')
+}
+
+function StatusCard({
+  label,
+  value,
+  detail,
+  tone = 'neutral',
+}: StatusCardProps) {
+  return (
+    <article className={`status-card status-card--${tone}`}>
+      <span>{label}</span>
+      <strong>{formatToken(value)}</strong>
+      {detail && <small>{detail}</small>}
+    </article>
+  )
+}
 
 export default function App() {
   const {
@@ -16,7 +42,9 @@ export default function App() {
     commandStatus,
     failureMessage,
     telemetryState,
+    telemetryAgeMs,
     activeFault,
+    sentCommand,
     moveForward,
     interact,
     emergencyStop,
@@ -31,6 +59,7 @@ export default function App() {
     commandStatus,
     activeFault,
     robotMode: robotState?.mode,
+    sentCommand,
   })
 
   const emergencyStopped =
@@ -41,115 +70,242 @@ export default function App() {
     telemetryState === 'stale' ||
     emergencyStopped
 
+  const connectionTone: Tone =
+    connectionState === 'live' ? 'positive' : 'danger'
+
+  const telemetryTone: Tone =
+    telemetryState === 'live'
+      ? 'positive'
+      : telemetryState === 'delayed'
+        ? 'warning'
+        : 'danger'
+
+  const modeTone: Tone = emergencyStopped
+    ? 'danger'
+    : 'neutral'
+
+  const commandTone: Tone =
+    commandStatus === 'completed'
+      ? 'positive'
+      : commandStatus === 'executing' ||
+          commandStatus === 'acknowledged'
+        ? 'warning'
+        : commandStatus === 'failed' ||
+            commandStatus === 'aborted' ||
+            commandStatus === 'rejected'
+          ? 'danger'
+          : 'neutral'
+
   return (
-    <main>
-      <h1>Robot State and Command Visibility</h1>
+    <main className="app-shell">
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">
+            Real-time operator experiment
+          </p>
 
-      <p>
-        Connection:{' '}
-        <strong>{connectionState.toUpperCase()}</strong>
-      </p>
+          <h1>Robot State &amp; Command Visibility</h1>
 
-      <p>
-        Telemetry:{' '}
-        <strong>{telemetryState.toUpperCase()}</strong>
-      </p>
+          <p className="app-description">
+            Separate intent, acknowledgement, observed
+            behavior, and uncertainty.
+          </p>
+        </div>
 
-      <p>
-        Mode:{' '}
-        <strong>
-          {robotState?.mode.toUpperCase() ?? 'UNKNOWN'}
-        </strong>
-      </p>
+        <div className="session-status">
+          <span
+            className={
+              connectionState === 'live'
+                ? 'session-indicator session-indicator--live'
+                : 'session-indicator'
+            }
+          />
 
-      <p>
-        Command:{' '}
-        <strong>
-          {commandStatus?.toUpperCase() ?? 'IDLE'}
-        </strong>
-      </p>
+          {connectionState === 'live'
+            ? 'Live session'
+            : 'Session unavailable'}
+        </div>
+      </header>
 
-      <p>
-        Fault:{' '}
-        <strong>
-          {activeFault?.toUpperCase() ?? 'NONE'}
-        </strong>
-      </p>
+      <section
+        className="status-grid"
+        aria-label="System status"
+      >
+        <StatusCard
+          label="Connection"
+          value={connectionState.toUpperCase()}
+          tone={connectionTone}
+        />
 
-      <p>
-        Commanded X: {robotState?.commandedPose?.x ?? 0}
-      </p>
+        <StatusCard
+          label="Telemetry"
+          value={telemetryState.toUpperCase()}
+          detail={`${telemetryAgeMs} ms old`}
+          tone={telemetryTone}
+        />
 
-      <p>
-        Observed X: {robotState?.actualPose?.x ?? 0}
-      </p>
+        <StatusCard
+          label="Robot mode"
+          value={
+            robotState?.mode.toUpperCase() ?? 'UNKNOWN'
+          }
+          tone={modeTone}
+        />
+
+        <StatusCard
+          label="Latest command"
+          value={commandStatus?.toUpperCase() ?? 'IDLE'}
+          tone={commandTone}
+        />
+      </section>
 
       {failureMessage && (
-        <p role="alert">{failureMessage}</p>
+        <div className="failure-alert" role="alert">
+          <strong>Command did not complete</strong>
+          <span>{failureMessage}</span>
+        </div>
       )}
 
-      <RobotView robotState={robotState} />
+      <div className="workspace-grid">
+        <section className="panel visualization-panel">
+          <header className="panel-header">
+            <div>
+              <p className="section-label">
+                Workcell
+              </p>
+              <h2>Robot position</h2>
+            </div>
 
-      <button
-        type="button"
-        disabled={normalControlsDisabled}
-        onClick={moveForward}
-      >
-        Move forward
-      </button>
+            <div className="position-values">
+              <span>
+                Commanded
+                <strong>
+                  {robotState?.commandedPose.x ?? 0}
+                </strong>
+              </span>
 
-      <button
-        type="button"
-        disabled={normalControlsDisabled}
-        onClick={interact}
-      >
-        Interact
-      </button>
+              <span>
+                Observed
+                <strong>
+                  {robotState?.actualPose.x ?? 0}
+                </strong>
+              </span>
+            </div>
+          </header>
 
-      <button
-        type="button"
-        disabled={connectionState !== 'live'}
-        onClick={emergencyStop}
-      >
-        Simulated emergency stop
-      </button>
+          <RobotView robotState={robotState} />
+        </section>
 
-      <button
-        type="button"
-        disabled={
-          connectionState !== 'live' || !emergencyStopped
-        }
-        onClick={reset}
-      >
-        Reset
-      </button>
+        <aside className="panel control-panel">
+          <header className="panel-header">
+            <div>
+              <p className="section-label">
+                Operator controls
+              </p>
+              <h2>Commands</h2>
+            </div>
+          </header>
 
-      <button
-        type="button"
-        disabled={activeFault !== null}
-        onClick={enableTelemetryDelay}
-      >
-        Enable telemetry delay
-      </button>
+          <section className="control-group">
+            <h3>Movement</h3>
 
-      <button
-        type="button"
-        disabled={activeFault !== null}
-        onClick={enableInteractionFailure}
-      >
-        Enable interaction failure
-      </button>
+            <div className="control-buttons">
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={normalControlsDisabled}
+                onClick={moveForward}
+              >
+                Move forward
+              </button>
 
-      <button
-        type="button"
-        disabled={activeFault === null}
-        onClick={clearFault}
-      >
-        Clear fault
-      </button>
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={normalControlsDisabled}
+                onClick={interact}
+              >
+                Interact
+              </button>
+            </div>
+          </section>
+
+          <section className="control-group">
+            <h3>Safety</h3>
+
+            <div className="control-buttons">
+              <button
+                className="button button--danger"
+                type="button"
+                disabled={connectionState !== 'live'}
+                onClick={emergencyStop}
+              >
+                Emergency stop
+              </button>
+
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={
+                  connectionState !== 'live' ||
+                  !emergencyStopped
+                }
+                onClick={reset}
+              >
+                Reset
+              </button>
+            </div>
+
+            <small>
+              Simulated control. Not safety-rated.
+            </small>
+          </section>
+
+          <section className="control-group">
+            <h3>Fault injection</h3>
+
+            <div className="control-buttons control-buttons--stacked">
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={activeFault !== null}
+                onClick={enableTelemetryDelay}
+              >
+                Delay telemetry
+              </button>
+
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={activeFault !== null}
+                onClick={enableInteractionFailure}
+              >
+                Fail interaction
+              </button>
+
+              <button
+                className="button button--ghost"
+                type="button"
+                disabled={activeFault === null}
+                onClick={clearFault}
+              >
+                Clear active fault
+              </button>
+            </div>
+          </section>
+
+          <div className="active-fault">
+            <span>Active fault</span>
+            <strong>
+              {activeFault
+                ? formatToken(activeFault).toUpperCase()
+                : 'NONE'}
+            </strong>
+          </div>
+        </aside>
+      </div>
 
       <EventLog events={events} />
-      
     </main>
   )
 }

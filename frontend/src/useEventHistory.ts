@@ -5,11 +5,20 @@ import type {
   CommandStatus,
   ConnectionState,
   RobotMode,
+  SentCommand,
 } from './useRobotSocket'
+
+export type EventCategory =
+  | 'command'
+  | 'connection'
+  | 'fault'
+  | 'mode'
 
 export type EventEntry = {
   id: number
-  message: string
+  category: EventCategory
+  title: string
+  details?: string[]
 }
 
 type EventHistoryInput = {
@@ -17,6 +26,7 @@ type EventHistoryInput = {
   commandStatus: CommandStatus | null
   activeFault: ActiveFault
   robotMode: RobotMode | undefined
+  sentCommand: SentCommand | null
 }
 
 export function useEventHistory({
@@ -24,40 +34,94 @@ export function useEventHistory({
   commandStatus,
   activeFault,
   robotMode,
+  sentCommand,
 }: EventHistoryInput) {
   const [events, setEvents] = useState<EventEntry[]>([])
   const nextId = useRef(1)
   const previousFault = useRef<ActiveFault>(null)
+  const activeCommandEventId = useRef<number | null>(null)
 
-  function append(message: string) {
+  function append(
+    category: EventCategory,
+    title: string,
+  ) {
+    const id = nextId.current++
+
     setEvents((current) =>
-      [
-        {
-          id: nextId.current++,
-          message,
-        },
-        ...current,
-      ].slice(0, 20),
+      [{ id, category, title }, ...current].slice(0, 30),
     )
+
+    return id
   }
 
   useEffect(() => {
+    if (!sentCommand) return
+
+    const id = nextId.current++
+    activeCommandEventId.current = id
+
+    setEvents((current) =>
+      [
+        {
+          id,
+          category: 'command',
+          title: sentCommand.command,
+          details: [],
+        },
+        ...current,
+      ].slice(0, 30),
+    )
+  }, [sentCommand])
+
+  useEffect(() => {
+    if (
+      !commandStatus ||
+      activeCommandEventId.current === null
+    ) {
+      return
+    }
+
+    const eventId = activeCommandEventId.current
+    const status = commandStatus.toUpperCase()
+
+    setEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event
+
+        const details = event.details ?? []
+
+        if (details.includes(status)) {
+          return event
+        }
+
+        return {
+          ...event,
+          details: [...details, status],
+        }
+      }),
+    )
+  }, [commandStatus])
+
+  useEffect(() => {
     if (connectionState !== 'connecting') {
-      append(`Connection: ${connectionState.toUpperCase()}`)
+      append(
+        'connection',
+        `Connection ${connectionState.toUpperCase()}`,
+      )
     }
   }, [connectionState])
 
   useEffect(() => {
-    if (commandStatus) {
-      append(`Command: ${commandStatus.toUpperCase()}`)
-    }
-  }, [commandStatus])
-
-  useEffect(() => {
     if (activeFault) {
-      append(`Fault enabled: ${activeFault}`)
+      append(
+        'fault',
+        `Enabled ${activeFault}`,
+      )
     } else if (previousFault.current) {
-      append(`Fault cleared: ${previousFault.current}`)
+      append(
+        'fault',
+        `Cleared ${previousFault.current}`,
+      )
     }
 
     previousFault.current = activeFault
@@ -65,11 +129,11 @@ export function useEventHistory({
 
   useEffect(() => {
     if (robotMode === 'emergency_stopped') {
-      append('Robot entered emergency-stop mode')
+      append('mode', 'Emergency stop activated')
     }
 
     if (robotMode === 'idle') {
-      append('Robot mode: IDLE')
+      append('mode', 'Robot entered idle mode')
     }
   }, [robotMode])
 
