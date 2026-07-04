@@ -1,3 +1,4 @@
+import RobotView from './RobotView'
 import { useRobotSocket } from './useRobotSocket'
 
 const websocketProtocol =
@@ -77,6 +78,8 @@ export default function App() {
       {failureMessage && (
         <p role="alert">{failureMessage}</p>
       )}
+
+      <RobotView robotState={robotState} />
 
       <button
         type="button"
