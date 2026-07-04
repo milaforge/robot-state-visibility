@@ -1,5 +1,7 @@
 import RobotView from './RobotView'
 import { useRobotSocket } from './useRobotSocket'
+import EventLog from './EventLog'
+import { useEventHistory } from './useEventHistory'
 
 const websocketProtocol =
   window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -23,6 +25,13 @@ export default function App() {
     enableInteractionFailure,
     clearFault,
   } = useRobotSocket(websocketUrl)
+
+  const events = useEventHistory({
+    connectionState,
+    commandStatus,
+    activeFault,
+    robotMode: robotState?.mode,
+  })
 
   const emergencyStopped =
     robotState?.mode === 'emergency_stopped'
@@ -138,6 +147,9 @@ export default function App() {
       >
         Clear fault
       </button>
+
+      <EventLog events={events} />
+      
     </main>
   )
 }
