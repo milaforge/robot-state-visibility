@@ -2,6 +2,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.protocol import MessageType, RobotMode
+
 Message = dict[str, Any]
 
 
@@ -24,13 +26,13 @@ class RobotState:
     commanded_pose: Pose = field(default_factory=Pose)
     actual_pose: Pose = field(default_factory=Pose)
     sequence: int = 0
-    mode: str = "idle"
+    mode: RobotMode = RobotMode.IDLE
 
     def create_message(self) -> Message:
         self.sequence += 1
 
         return {
-            "type": "robot_state",
+            "type": MessageType.ROBOT_STATE,
             "sequence": self.sequence,
             "observedAtMs": int(time.time() * 1000),
             "mode": self.mode,

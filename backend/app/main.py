@@ -4,6 +4,14 @@ from contextlib import suppress
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+from app.protocol import (
+    SUPPORTED_FAULTS,
+    Command,
+    CommandStatus,
+    Fault,
+    MessageType,
+    RobotMode,
+)
 from app.state import Message, RobotState
 
 app = FastAPI()
@@ -25,7 +33,7 @@ async def robot_socket(websocket: WebSocket) -> None:
     await websocket.accept()
 
     robot_state = RobotState()
-    active_fault: str | None = None
+    active_fault: Fault | None = None
     fault_generation = 0
     active_command_task: asyncio.Task[None] | None = None
 
@@ -40,7 +48,7 @@ async def robot_socket(websocket: WebSocket) -> None:
         message: str | None = None,
     ) -> None:
         payload: Message = {
-            "type": "command_status",
+            "type": MessageType.COMMAND_STATUS,
             "status": status,
         }
 
@@ -59,7 +67,7 @@ async def robot_socket(websocket: WebSocket) -> None:
             generation = fault_generation
             message = robot_state.create_message()
 
-            if active_fault == "telemetry_delay":
+            if active_fault == Fault.TELEMETRY_DELAY:
                 await asyncio.sleep(TELEMETRY_DELAY_SECONDS)
 
                 if generation != fault_generation:
@@ -108,14 +116,14 @@ async def robot_socket(websocket: WebSocket) -> None:
 
                 await send_robot_state()
 
-            await send_command_status("completed")
+            await send_command_status(CommandStatus.COMPLETED)
 
         except asyncio.CancelledError:
             robot_state.commanded_pose.x = robot_state.actual_pose.x
             robot_state.commanded_pose.y = robot_state.actual_pose.y
 
             await send_command_status(
-                "aborted",
+                CommandStatus.ABORTED,
                 "Movement was interrupted by the simulated emergency stop.",
             )
 
@@ -135,11 +143,11 @@ async def robot_socket(websocket: WebSocket) -> None:
         try:
             await send_robot_state()
 
-            if active_fault == "rotation_failure":
+            if active_fault == Fault.ROTATION_FAILURE:
                 await asyncio.sleep(0.4)
 
                 await send_command_status(
-                    "failed",
+                    CommandStatus.FAILED,
                     (
                         "Rotation did not complete. "
                         "Observed orientation is unchanged. "
@@ -163,14 +171,14 @@ async def robot_socket(websocket: WebSocket) -> None:
 
                 await send_robot_state()
 
-            await send_command_status("completed")
+            await send_command_status(CommandStatus.COMPLETED)
 
         except asyncio.CancelledError:
             robot_state.commanded_pose.heading = robot_state.actual_pose.heading
             await send_robot_state()
 
             await send_command_status(
-                "aborted",
+                CommandStatus.ABORTED,
                 "Rotation was interrupted by the simulated emergency stop.",
             )
 
@@ -182,7 +190,7 @@ async def robot_socket(websocket: WebSocket) -> None:
 
     await send_message(
         {
-            "type": "connection_status",
+            "type": MessageType.CONNECTION_STATUS,
             "status": "live",
         }
     )
@@ -195,38 +203,35 @@ async def robot_socket(websocket: WebSocket) -> None:
             message = await websocket.receive_json()
             message_type = message.get("type")
 
-            if message_type == "set_fault":
+            if message_type == MessageType.SET_FAULT:
                 fault = message.get("fault")
 
-                if fault not in {
-                    "telemetry_delay",
-                    "rotation_failure",
-                }:
+                if fault not in SUPPORTED_FAULTS:
                     await send_message(
                         {
-                            "type": "error",
+                            "type": MessageType.ERROR,
                             "message": "Unsupported fault",
                         }
                     )
                     continue
 
-                active_fault = fault
+                active_fault = Fault(fault)
                 fault_generation += 1
 
                 await send_message(
                     {
-                        "type": "fault_status",
+                        "type": MessageType.FAULT_STATUS,
                         "fault": fault,
                         "enabled": True,
                     }
                 )
                 continue
 
-            if message_type == "clear_fault":
+            if message_type == MessageType.CLEAR_FAULT:
                 if active_fault is None:
                     await send_message(
                         {
-                            "type": "error",
+                            "type": MessageType.ERROR,
                             "message": "No active fault",
                         }
                     )
@@ -238,7 +243,7 @@ async def robot_socket(websocket: WebSocket) -> None:
 
                 await send_message(
                     {
-                        "type": "fault_status",
+                        "type": MessageType.FAULT_STATUS,
                         "fault": cleared_fault,
                         "enabled": False,
                     }
@@ -246,10 +251,10 @@ async def robot_socket(websocket: WebSocket) -> None:
                 await send_robot_state()
                 continue
 
-            if message_type != "command":
+            if message_type != MessageType.COMMAND:
                 await send_message(
                     {
-                        "type": "error",
+                        "type": MessageType.ERROR,
                         "message": "Unsupported message",
                     }
                 )
@@ -257,10 +262,10 @@ async def robot_socket(websocket: WebSocket) -> None:
 
             command = message.get("command")
 
-            if command == "emergency_stop":
-                await send_command_status("acknowledged")
+            if command == Command.EMERGENCY_STOP:
+                await send_command_status(CommandStatus.ACKNOWLEDGED)
 
-                robot_state.mode = "emergency_stopped"
+                robot_state.mode = RobotMode.EMERGENCY_STOPPED
                 task = active_command_task
 
                 if task is not None and not task.done():
@@ -271,27 +276,27 @@ async def robot_socket(websocket: WebSocket) -> None:
 
                 robot_state.sync_commanded_to_actual()
                 await send_robot_state()
-                await send_command_status("completed")
+                await send_command_status(CommandStatus.COMPLETED)
                 continue
 
-            if command == "reset":
-                if robot_state.mode != "emergency_stopped":
+            if command == Command.RESET:
+                if robot_state.mode != RobotMode.EMERGENCY_STOPPED:
                     await send_command_status(
-                        "rejected",
+                        CommandStatus.REJECTED,
                         "Reset is only available after an emergency stop.",
                     )
                     continue
 
-                robot_state.mode = "idle"
+                robot_state.mode = RobotMode.IDLE
 
-                await send_command_status("acknowledged")
+                await send_command_status(CommandStatus.ACKNOWLEDGED)
                 await send_robot_state()
-                await send_command_status("completed")
+                await send_command_status(CommandStatus.COMPLETED)
                 continue
 
-            if robot_state.mode == "emergency_stopped":
+            if robot_state.mode == RobotMode.EMERGENCY_STOPPED:
                 await send_command_status(
-                    "rejected",
+                    CommandStatus.REJECTED,
                     (
                         "Command rejected while emergency stop is active. "
                         "Reset before issuing normal commands."
@@ -304,23 +309,23 @@ async def robot_socket(websocket: WebSocket) -> None:
                 and not active_command_task.done()
             ):
                 await send_command_status(
-                    "rejected",
+                    CommandStatus.REJECTED,
                     "Another command is currently executing.",
                 )
                 continue
 
-            if command == "move_forward":
-                await send_command_status("acknowledged")
-                await send_command_status("executing")
+            if command == Command.MOVE_FORWARD:
+                await send_command_status(CommandStatus.ACKNOWLEDGED)
+                await send_command_status(CommandStatus.EXECUTING)
 
                 active_command_task = asyncio.create_task(
                     execute_move()
                 )
                 continue
 
-            if command == "rotate_right":
-                await send_command_status("acknowledged")
-                await send_command_status("executing")
+            if command == Command.ROTATE_RIGHT:
+                await send_command_status(CommandStatus.ACKNOWLEDGED)
+                await send_command_status(CommandStatus.EXECUTING)
 
                 active_command_task = asyncio.create_task(
                     execute_rotation()
@@ -328,7 +333,7 @@ async def robot_socket(websocket: WebSocket) -> None:
                 continue
 
             await send_command_status(
-                "rejected",
+                CommandStatus.REJECTED,
                 "Unsupported command.",
             )
 
