@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -28,6 +29,52 @@ def receive_matching(
 
     raise AssertionError(
         f"Expected message not received: {expected}\n"
+        f"Received: {received}"
+    )
+
+
+def receive_robot_state_matching(
+    websocket: Any,
+    predicate: Callable[[dict[str, Any]], bool],
+    *,
+    max_messages: int = 40,
+) -> dict[str, Any]:
+    received: list[dict[str, Any]] = []
+
+    for _ in range(max_messages):
+        message = websocket.receive_json()
+        received.append(message)
+
+        if message["type"] == "robot_state" and predicate(message):
+            return message
+
+    raise AssertionError(f"Expected robot state not received. Received: {received}")
+
+
+def receive_until_command_status(
+    websocket: Any,
+    status: str,
+    *,
+    max_messages: int = 80,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    received: list[dict[str, Any]] = []
+    robot_states: list[dict[str, Any]] = []
+
+    for _ in range(max_messages):
+        message = websocket.receive_json()
+        received.append(message)
+
+        if message["type"] == "robot_state":
+            robot_states.append(message)
+
+        if (
+            message["type"] == "command_status"
+            and message["status"] == status
+        ):
+            return message, robot_states
+
+    raise AssertionError(
+        f"Expected command status not received: {status}\n"
         f"Received: {received}"
     )
 
@@ -70,34 +117,18 @@ def test_move_exposes_commanded_and_observed_state() -> None:
             },
         )
 
-        saw_tracking_difference = False
-        final_state: dict[str, Any] | None = None
+        _, states = receive_until_command_status(websocket, "completed")
 
-        while True:
-            message = websocket.receive_json()
-
-            if message["type"] == "robot_state":
-                final_state = message
-
-                if (
-                    message["commandedPose"]["x"]
-                    != message["actualPose"]["x"]
-                    or message["commandedPose"]["y"]
-                    != message["actualPose"]["y"]
-                ):
-                    saw_tracking_difference = True
-
-            if (
-                message["type"] == "command_status"
-                and message["status"] == "completed"
-            ):
-                break
-
+    final_state = states[-1] if states else None
+    saw_tracking_difference = any(
+        state["commandedPose"]["x"] != state["actualPose"]["x"]
+        or state["commandedPose"]["y"] != state["actualPose"]["y"]
+        for state in states
+    )
     assert saw_tracking_difference
     assert final_state is not None
     assert final_state["actualPose"]["x"] == 0
     assert final_state["actualPose"]["y"] == 1
-
 
 
 def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
@@ -232,16 +263,10 @@ def test_emergency_stop_interrupts_active_movement() -> None:
             },
         )
 
-        while True:
-            moving = websocket.receive_json()
-
-            if moving["type"] != "robot_state":
-                continue
-
-            observed_y = moving["actualPose"]["y"]
-
-            if 0 < observed_y < 1:
-                break
+        receive_robot_state_matching(
+            websocket,
+            lambda state: 0 < state["actualPose"]["y"] < 1,
+        )
 
         websocket.send_json(
             {
@@ -348,27 +373,14 @@ def test_interaction_rotates_robot_ninety_degrees_clockwise() -> None:
             },
         )
 
-        saw_commanded_rotation = False
-        final_state: dict[str, Any] | None = None
+        _, states = receive_until_command_status(websocket, "completed")
 
-        while True:
-            message = websocket.receive_json()
-
-            if message["type"] == "robot_state":
-                final_state = message
-
-                commanded = message["commandedPose"]["heading"]
-                observed = message["actualPose"]["heading"]
-
-                if commanded == 90 and observed < 90:
-                    saw_commanded_rotation = True
-
-            if (
-                message["type"] == "command_status"
-                and message["status"] == "completed"
-            ):
-                break
-
+    final_state = states[-1] if states else None
+    saw_commanded_rotation = any(
+        state["commandedPose"]["heading"] == 90
+        and state["actualPose"]["heading"] < 90
+        for state in states
+    )
     assert saw_commanded_rotation
     assert final_state is not None
     assert final_state["commandedPose"]["heading"] == 90
@@ -402,20 +414,9 @@ def test_move_forward_uses_current_heading() -> None:
             }
         )
 
-        final_state: dict[str, Any] | None = None
+        _, states = receive_until_command_status(websocket, "completed")
 
-        while True:
-            message = websocket.receive_json()
-
-            if message["type"] == "robot_state":
-                final_state = message
-
-            if (
-                message["type"] == "command_status"
-                and message["status"] == "completed"
-            ):
-                break
-
+    final_state = states[-1] if states else None
     assert final_state is not None
     assert final_state["actualPose"]["heading"] == 90
     assert final_state["actualPose"]["x"] == 1
