@@ -413,6 +413,26 @@ summary:focus-visible {
   line-height: 1.4;
 }
 
+.failure-alert--unknown {
+  border-color: #fedf89;
+  background: #fffbeb;
+  color: #93370d;
+}
+
+.failure-alert--unknown>span {
+  background: #f79009;
+}
+
+.failure-alert--reconciled {
+  border-color: #abefc6;
+  background: #f0fdf4;
+  color: #027a48;
+}
+
+.failure-alert--reconciled>span {
+  background: #12b76a;
+}
+
 .control-panel {
   display: flex;
   flex-direction: column;
@@ -783,10 +803,21 @@ summary:focus-visible {
   color: #027a48;
 }
 
+.lifecycle-status--completed-reconciled {
+  background: #dcfae6;
+  color: #05603a;
+}
+
 .lifecycle-status--executing,
-.lifecycle-status--acknowledged {
+.lifecycle-status--acknowledged,
+.lifecycle-status--sent {
   background: #fffaeb;
   color: #b54708;
+}
+
+.lifecycle-status--unknown {
+  background: #fff6d7;
+  color: #93370d;
 }
 
 .lifecycle-status--failed,
@@ -2117,8 +2148,8 @@ summary:focus-visible {
 .observed-marker {
   position: absolute;
   z-index: 3;
-  width: 72px;
-  height: 72px;
+  width: 144px;
+  height: 144px;
   transform: translate(-50%, -50%);
 }
 
@@ -2127,8 +2158,8 @@ summary:focus-visible {
   border-radius: 50%;
   background: rgba(108, 92, 231, 0.08);
   box-shadow:
-    0 0 0 8px rgba(108, 92, 231, 0.06),
-    0 5px 16px rgba(108, 92, 231, 0.15);
+    0 0 0 16px rgba(108, 92, 231, 0.06),
+    0 10px 32px rgba(108, 92, 231, 0.15);
   transition:
     top 180ms linear,
     left 180ms linear,
@@ -2140,8 +2171,8 @@ summary:focus-visible {
   border-color: #f04438;
   background: rgba(240, 68, 56, 0.08);
   box-shadow:
-    0 0 0 8px rgba(240, 68, 56, 0.06),
-    0 5px 16px rgba(240, 68, 56, 0.15);
+    0 0 0 16px rgba(240, 68, 56, 0.06),
+    0 10px 32px rgba(240, 68, 56, 0.15);
 }
 
 .commanded-direction,
@@ -2155,14 +2186,14 @@ summary:focus-visible {
 
 .commanded-direction::before {
   position: absolute;
-  top: -11px;
+  top: -22px;
   left: 50%;
   width: 0;
   height: 0;
   content: "";
-  border-right: 7px solid transparent;
-  border-bottom: 11px solid #6c5ce7;
-  border-left: 7px solid transparent;
+  border-right: 14px solid transparent;
+  border-bottom: 22px solid #6c5ce7;
+  border-left: 14px solid transparent;
   transform: translateX(-50%);
 }
 
@@ -2177,9 +2208,9 @@ summary:focus-visible {
 
 .observed-shell {
   position: absolute;
-  inset: 8px;
+  inset: 16px;
   overflow: hidden;
-  border: 4px solid #ffffff;
+  border: 8px solid #ffffff;
   border-radius: 50%;
   background:
     radial-gradient(circle at 35% 28%,
@@ -2187,19 +2218,19 @@ summary:focus-visible {
       #172033 45%,
       #0f172a 100%);
   box-shadow:
-    0 0 0 2px rgba(15, 23, 42, 0.08),
-    0 8px 20px rgba(15, 23, 42, 0.25);
+    0 0 0 4px rgba(15, 23, 42, 0.08),
+    0 16px 40px rgba(15, 23, 42, 0.25);
 }
 
 .observed-gloss {
   position: absolute;
-  top: 7px;
-  left: 9px;
-  width: 24px;
-  height: 16px;
+  top: 14px;
+  left: 18px;
+  width: 48px;
+  height: 32px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.38);
-  filter: blur(4px);
+  filter: blur(8px);
   transform: rotate(-30deg);
 }
 
@@ -2207,8 +2238,8 @@ summary:focus-visible {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 17px;
-  height: 17px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: #ffffff;
   transform: translate(-50%, -50%);
@@ -2216,16 +2247,16 @@ summary:focus-visible {
 
 .observed-direction::before {
   position: absolute;
-  top: 8px;
+  top: 16px;
   left: 50%;
   width: 0;
   height: 0;
   content: "";
-  border-right: 8px solid transparent;
-  border-bottom: 14px solid #ffffff;
-  border-left: 8px solid transparent;
+  border-right: 16px solid transparent;
+  border-bottom: 28px solid #ffffff;
+  border-left: 16px solid transparent;
   transform: translateX(-50%);
-  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.2));
+  filter: drop-shadow(0 2px 2px rgba(15, 23, 42, 0.2));
 }
 
 .workcell-emergency-layer {
@@ -2436,12 +2467,12 @@ summary:focus-visible {
 
   .commanded-marker,
   .observed-marker {
-    width: 60px;
-    height: 60px;
+    width: 120px;
+    height: 120px;
   }
 
   .observed-shell {
-    inset: 7px;
+    inset: 14px;
   }
 
   .failure-alert {
@@ -2656,7 +2687,7 @@ summary:focus-visible {
   min-width: 0;
   max-height: min(420px, 65vh);
 
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #dce2ea;
   border-radius: 14px;
   background: #ffffff;
@@ -2880,10 +2911,11 @@ summary:focus-visible {
   gap: 4px;
   max-height: 280px;
   padding: 8px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .scenario-menu-item {
+  position: relative;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
@@ -2963,36 +2995,34 @@ summary:focus-visible {
 }
 
 .scenario-tooltip {
-  min-height: 44px;
-  margin: 0;
-  padding: 10px 13px;
+  position: absolute;
+  z-index: 60;
+  right: 8px;
+  bottom: calc(100% + 7px);
+  left: 8px;
+  padding: 9px 11px;
 
-  border-top: 1px solid #edf0f4;
-  background: #f8fafc;
-  color: #667085;
+  border: 1px solid #d7dde7;
+  border-radius: 9px;
+  background: #172033;
+  color: #ffffff;
 
-  font-size: 0.6rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+
+  font-size: 0.61rem;
   line-height: 1.45;
+  pointer-events: none;
 }
 
 .scenario-tooltip::before {
-  margin-right: 7px;
-  color: #4f46e5;
-  content: "ⓘ";
-  font-weight: 800;
-}
-
-.scenario-tooltip--visible {
-  color: #344054;
-}
-
-[data-tooltip] {
-  position: relative;
-}
-
-.scenario-menu-item[data-tooltip]::after {
-  right: 8px;
-  bottom: calc(100% + 5px);
+  position: absolute;
+  right: 14px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: #172033;
+  content: "";
+  transform: rotate(45deg);
 }
 
 .control-availability {
