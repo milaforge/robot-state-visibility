@@ -21,16 +21,10 @@ def receive_matching(
         message = websocket.receive_json()
         received.append(message)
 
-        if all(
-            message.get(key) == value
-            for key, value in expected.items()
-        ):
+        if all(message.get(key) == value for key, value in expected.items()):
             return message
 
-    raise AssertionError(
-        f"Expected message not received: {expected}\n"
-        f"Received: {received}"
-    )
+    raise AssertionError(f"Expected message not received: {expected}\nReceived: {received}")
 
 
 def receive_robot_state_matching(
@@ -67,16 +61,10 @@ def receive_until_command_status(
         if message["type"] == "robot_state":
             robot_states.append(message)
 
-        if (
-            message["type"] == "command_status"
-            and message["status"] == status
-        ):
+        if message["type"] == "command_status" and message["status"] == status:
             return message, robot_states
 
-    raise AssertionError(
-        f"Expected command status not received: {status}\n"
-        f"Received: {received}"
-    )
+    raise AssertionError(f"Expected command status not received: {status}\nReceived: {received}")
 
 
 def test_initial_connection_and_idle_telemetry() -> None:
@@ -159,10 +147,7 @@ def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
             },
         )
 
-        assert (
-            int(time.time() * 1000) - delayed["observedAtMs"]
-            >= 1000
-        )
+        assert int(time.time() * 1000) - delayed["observedAtMs"] >= 1000
 
         websocket.send_json({"type": "clear_fault"})
 
@@ -182,10 +167,7 @@ def test_telemetry_delay_produces_stale_state_and_recovers() -> None:
             },
         )
 
-        assert (
-            int(time.time() * 1000) - recovered["observedAtMs"]
-            < 250
-        )
+        assert int(time.time() * 1000) - recovered["observedAtMs"] < 250
 
 
 def test_interaction_can_fail_after_acknowledgement() -> None:
@@ -377,8 +359,7 @@ def test_interaction_rotates_robot_ninety_degrees_clockwise() -> None:
 
     final_state = states[-1] if states else None
     saw_commanded_rotation = any(
-        state["commandedPose"]["heading"] == 90
-        and state["actualPose"]["heading"] < 90
+        state["commandedPose"]["heading"] == 90 and state["actualPose"]["heading"] < 90
         for state in states
     )
     assert saw_commanded_rotation
