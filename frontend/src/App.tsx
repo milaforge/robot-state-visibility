@@ -11,43 +11,66 @@ import { formatToken, isCommandProblem } from "./utils";
 const websocketUrl =
   import.meta.env.VITE_WEBSOCKET_URL ?? "ws://localhost:8000/ws";
 
-type ScenarioId = "telemetry_delay" | "rotation_failure";
+type ScenarioId =
+  | "telemetry_delay"
+  | "rotation_failure"
+  | "lost_completion_after_execution";
 
 const demoScenarios: Array<{
   id: ScenarioId;
   label: string;
   icon: string;
   description: string;
+  detail: string;
 }> = [
   {
     id: "telemetry_delay",
-    label: "Telemetry delay",
+    label: "Observation Delay",
     icon: "◷",
-    description: "Delays telemetry until the observation becomes stale.",
+    description: "Fresh robot observations stop reaching the operator.",
+    detail:
+      "The connection remains open, but telemetry becomes stale. Normal controls lock while emergency stop remains available.",
   },
   {
     id: "rotation_failure",
-    label: "Rotation failure",
+    label: "Execution Error",
     icon: "↻",
-    description: "Accepts the rotation command, then fails before completion.",
+    description: "The command is accepted but fails during execution.",
+    detail:
+      "Rotate right is acknowledged and begins executing, then fails before the robot heading changes.",
+  },
+  {
+    id: "lost_completion_after_execution",
+    label: "Completion Delivery",
+    icon: "⇄",
+    description: "Execution succeeds, but completion is not delivered.",
+    detail:
+      "The robot finishes moving, then the connection drops before the completion event reaches the UI. The outcome remains unknown until reconciliation.",
   },
 ];
 
 export default function App() {
   const [eventsOpen, setEventsOpen] = useState(false);
   const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
-  const [scenarioHint, setScenarioHint] = useState<string | null>(null);
+  const [tooltipScenarioId, setTooltipScenarioId] = useState<ScenarioId | null>(
+    null,
+  );
   const [scenarioMenuOpen, setScenarioMenuOpen] = useState(false);
   const scenarioMenuRef = useRef<HTMLDivElement | null>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
+    null,
+  );
   const {
     connectionState,
     robotState,
     commandStatus,
+    commandReconciled,
     failureMessage,
     telemetryState,
     telemetryAgeMs,
     activeFault,
     sentCommand,
+    systemEvents,
     moveForward,
     rotateRight,
     emergencyStop,
@@ -59,9 +82,11 @@ export default function App() {
   const events = useEventHistory({
     connectionState,
     commandStatus,
+    commandReconciled,
     activeFault,
     robotMode: robotState?.mode,
     sentCommand,
+    systemEvents,
   });
 
   const emergencyStopped = robotState?.mode === "emergency_stopped";
@@ -69,10 +94,13 @@ export default function App() {
   const normalControlsDisabled =
     connectionState !== "live" ||
     telemetryState === "stale" ||
-    emergencyStopped;
+    emergencyStopped ||
+    commandStatus === "unknown";
 
   const commandBusy =
-    commandStatus === "acknowledged" || commandStatus === "executing";
+    commandStatus === "sent" ||
+    commandStatus === "acknowledged" ||
+    commandStatus === "executing";
 
   const commandProblem =
     commandStatus !== null && isCommandProblem(commandStatus);
@@ -94,10 +122,15 @@ export default function App() {
     "--liveness-scale": livenessScale,
   } as CSSProperties;
 
+  const outcomeUnknown = commandStatus === "unknown";
+
+  const commandReconciledCompleted =
+    commandStatus === "completed" && commandReconciled;
+
   useClickOutside(
     scenarioMenuRef,
     () => {
-      setScenarioHint(null);
+      clearScenarioTooltip();
       setScenarioMenuOpen(false);
     },
     scenarioMenuOpen,
@@ -116,6 +149,24 @@ export default function App() {
     enableFault(fault);
   }
 
+  function clearScenarioTooltip() {
+    if (tooltipTimerRef.current !== null) {
+      window.clearTimeout(tooltipTimerRef.current);
+      tooltipTimerRef.current = null;
+    }
+
+    setTooltipScenarioId(null);
+  }
+
+  function scheduleScenarioTooltip(fault: ScenarioId) {
+    clearScenarioTooltip();
+
+    tooltipTimerRef.current = window.setTimeout(() => {
+      setTooltipScenarioId(fault);
+      tooltipTimerRef.current = null;
+    }, 150);
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -128,29 +179,6 @@ export default function App() {
               <p>Intent versus observation</p>
             </div>
           </div>
-
-          <button
-            type="button"
-            className={`liveness-button liveness-button--${livenessState}`}
-            aria-label="Open connection details"
-            onClick={() => setConnectionDetailsOpen(true)}
-          >
-            <span className="liveness-visual" style={livenessStyle}>
-              <i />
-              <b />
-            </span>
-
-            <span>
-              <small>System</small>
-              <strong>
-                {connectionState !== "live"
-                  ? "Offline"
-                  : telemetryState === "live"
-                    ? "Operational"
-                    : telemetryState}
-              </strong>
-            </span>
-          </button>
         </div>
 
         <div className="header-actions">
@@ -182,15 +210,38 @@ export default function App() {
             </div>
           </header>
 
-          <RobotView robotState={robotState} rotationFailed={rotationFailed} />
+          <RobotView
+            robotState={robotState}
+            rotationFailed={rotationFailed}
+            livenessState={livenessState}
+            livenessStyle={livenessStyle}
+            connectionState={connectionState}
+            telemetryState={telemetryState}
+            onOpenConnectionDetails={() => setConnectionDetailsOpen(true)}
+          />
 
-          {failureMessage && (
-            <div className="failure-alert" role="alert">
-              <span>!</span>
+          {(failureMessage || outcomeUnknown || commandReconciledCompleted) && (
+            <div
+              className={
+                outcomeUnknown
+                  ? "failure-alert failure-alert--unknown"
+                  : commandReconciledCompleted
+                    ? "failure-alert failure-alert--reconciled"
+                    : "failure-alert"
+              }
+              role="alert"
+            >
+              <span>{commandReconciledCompleted ? "✓" : "!"}</span>
 
               <div>
-                <strong>Command did not complete</strong>
-                <p>{failureMessage}</p>
+                <strong>
+                  {outcomeUnknown
+                    ? "Outcome unknown"
+                    : commandReconciledCompleted
+                      ? "Completed — reconciled from authoritative backend state"
+                      : "Command did not complete"}
+                </strong>
+                {failureMessage && <p>{failureMessage}</p>}
               </div>
             </div>
           )}
@@ -319,7 +370,7 @@ export default function App() {
                 <span className="scenario-launcher-icon">⚙</span>
 
                 <span className="scenario-launcher-copy">
-                  <strong>Simulate Failure</strong>
+                  <strong>Possible Failure</strong>
                   <small>
                     {activeFault
                       ? formatToken(activeFault)
@@ -350,7 +401,7 @@ export default function App() {
                 <div id="scenario-popover" className="scenario-menu-popover">
                   <header className="scenario-menu-header">
                     <div>
-                      <strong>Simulate Failure</strong>
+                      <strong>Possible Failure</strong>
                     </div>
 
                     <span>{demoScenarios.length}</span>
@@ -362,10 +413,10 @@ export default function App() {
                       role="radio"
                       aria-checked={activeFault === null}
                       className="scenario-menu-item"
-                      onMouseEnter={() => setScenarioHint(null)}
-                      onMouseLeave={() => setScenarioHint(null)}
-                      onFocus={() => setScenarioHint(null)}
-                      onBlur={() => setScenarioHint(null)}
+                      onMouseEnter={clearScenarioTooltip}
+                      onMouseLeave={clearScenarioTooltip}
+                      onFocus={clearScenarioTooltip}
+                      onBlur={clearScenarioTooltip}
                       onClick={clearFault}
                     >
                       <span className="scenario-menu-icon">○</span>
@@ -391,13 +442,18 @@ export default function App() {
                           type="button"
                           role="radio"
                           aria-checked={active}
+                          aria-describedby={
+                            tooltipScenarioId === scenario.id
+                              ? `scenario-tooltip-${scenario.id}`
+                              : undefined
+                          }
                           className="scenario-menu-item"
                           onMouseEnter={() =>
-                            setScenarioHint(scenario.description)
+                            scheduleScenarioTooltip(scenario.id)
                           }
-                          onMouseLeave={() => setScenarioHint(null)}
-                          onFocus={() => setScenarioHint(scenario.description)}
-                          onBlur={() => setScenarioHint(null)}
+                          onMouseLeave={clearScenarioTooltip}
+                          onFocus={() => scheduleScenarioTooltip(scenario.id)}
+                          onBlur={clearScenarioTooltip}
                           onClick={() => selectFault(scenario.id)}
                         >
                           <span className="scenario-menu-icon">
@@ -412,20 +468,19 @@ export default function App() {
                           <span className="mini-radio" aria-hidden="true">
                             <span />
                           </span>
+
+                          {tooltipScenarioId === scenario.id && (
+                            <span
+                              id={`scenario-tooltip-${scenario.id}`}
+                              className="scenario-tooltip"
+                              role="tooltip"
+                            >
+                              {scenario.detail}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
-                  </div>
-
-                  <div
-                    className={
-                      scenarioHint
-                        ? "scenario-tooltip scenario-tooltip--visible"
-                        : "scenario-tooltip"
-                    }
-                    role="tooltip"
-                  >
-                    {scenarioHint ?? "Select a deterministic failure scenario."}
                   </div>
                 </div>
               )}

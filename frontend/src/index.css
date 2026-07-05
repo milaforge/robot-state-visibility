@@ -2475,6 +2475,20 @@ summary:focus-visible {
     inset: 14px;
   }
 
+  .workcell-liveness {
+    top: 10px;
+    right: 10px;
+  }
+
+  .workcell-liveness > span:last-child {
+    display: none;
+  }
+
+  .workcell-liveness {
+    min-width: auto;
+    padding: 4px;
+  }
+
   .failure-alert {
     top: 10px;
     right: 10px;
@@ -2524,6 +2538,16 @@ summary:focus-visible {
     display: none;
   }
 
+}
+
+.workcell-liveness {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
 }
 
 .workcell-pose-stack {

@@ -2,9 +2,16 @@ import type { CSSProperties } from "react";
 
 import type { RobotState } from "./useRobotSocket";
 
+type LivenessState = "live" | "delayed" | "stale" | "offline";
+
 type RobotViewProps = {
   robotState: RobotState | null;
   rotationFailed?: boolean;
+  livenessState?: LivenessState;
+  livenessStyle?: CSSProperties;
+  connectionState?: string;
+  telemetryState?: string;
+  onOpenConnectionDetails?: () => void;
 };
 
 const POSITION_SCALE = 10;
@@ -22,6 +29,11 @@ function angularDifference(commanded: number, observed: number) {
 export default function RobotView({
   robotState,
   rotationFailed = false,
+  livenessState,
+  livenessStyle,
+  connectionState,
+  telemetryState,
+  onOpenConnectionDetails,
 }: RobotViewProps) {
   const actualX = robotState?.actualPose.x ?? 0;
   const actualY = robotState?.actualPose.y ?? 0;
@@ -115,6 +127,31 @@ export default function RobotView({
             }}
           />
         </div>
+
+        {livenessState !== undefined && (
+          <button
+            type="button"
+            className={`workcell-liveness liveness-button liveness-button--${livenessState}`}
+            aria-label="Open connection details"
+            onClick={onOpenConnectionDetails}
+          >
+            <span className="liveness-visual" style={livenessStyle}>
+              <i />
+              <b />
+            </span>
+
+            <span>
+              <small>System</small>
+              <strong>
+                {connectionState !== "live"
+                  ? "Offline"
+                  : telemetryState === "live"
+                    ? "Operational"
+                    : telemetryState}
+              </strong>
+            </span>
+          </button>
+        )}
 
         <div className="workcell-pose-stack">
           <span>
