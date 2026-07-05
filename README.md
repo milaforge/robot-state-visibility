@@ -29,3 +29,7 @@ flowchart TD
 ```
 
 Built as a small monorepo with tests prepared on both sides.
+
+## Demo limitations
+
+The WebSocket session epoch, simulated robot state, and command ledger are kept in backend process memory. Restarting the backend resets command history, robot pose, active faults, queued stale events, and reconciliation state. This is intentional for the deterministic demo and is not a production durability or safety design.

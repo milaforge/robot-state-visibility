@@ -6,6 +6,7 @@ import type {
   ConnectionState,
   RobotMode,
   SentCommand,
+  SocketSystemEvent,
 } from './useRobotSocket'
 
 export type EventCategory =
@@ -24,22 +25,27 @@ export type EventEntry = {
 type EventHistoryInput = {
   connectionState: ConnectionState
   commandStatus: CommandStatus | null
+  commandReconciled: boolean
   activeFault: ActiveFault
   robotMode: RobotMode | undefined
   sentCommand: SentCommand | null
+  systemEvents: SocketSystemEvent[]
 }
 
 export function useEventHistory({
   connectionState,
   commandStatus,
+  commandReconciled,
   activeFault,
   robotMode,
   sentCommand,
+  systemEvents,
 }: EventHistoryInput) {
   const [events, setEvents] = useState<EventEntry[]>([])
   const nextId = useRef(1)
   const previousFault = useRef<ActiveFault>(null)
   const activeCommandEventId = useRef<number | null>(null)
+  const lastSystemEventId = useRef(0)
 
   function append(
     category: EventCategory,
@@ -71,7 +77,10 @@ export function useEventHistory({
     }
 
     const eventId = activeCommandEventId.current
-    const status = commandStatus.toUpperCase()
+    const status =
+      commandStatus === 'completed' && commandReconciled
+        ? 'COMPLETED — RECONCILED'
+        : commandStatus.toUpperCase()
 
     setEvents((current) =>
       current.map((event) => {
@@ -89,7 +98,18 @@ export function useEventHistory({
         }
       }),
     )
-  }, [commandStatus])
+  }, [commandReconciled, commandStatus])
+
+  useEffect(() => {
+    const nextEvents = systemEvents.filter(
+      (event) => event.id > lastSystemEventId.current,
+    )
+
+    nextEvents.forEach((event) => {
+      append('connection', event.title)
+      lastSystemEventId.current = event.id
+    })
+  }, [systemEvents])
 
   useEffect(() => {
     if (connectionState !== 'connecting') {

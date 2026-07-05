@@ -1,8 +1,9 @@
 from fastapi import FastAPI, WebSocket
 
-from app.session import RobotSession
+from app.session import RobotSession, RobotSimulator
 
 app = FastAPI()
+simulator = RobotSimulator()
 
 
 @app.get("/api/health")
@@ -12,4 +13,4 @@ def health() -> dict[str, str]:
 
 @app.websocket("/ws")
 async def robot_socket(websocket: WebSocket) -> None:
-    await RobotSession(websocket).run()
+    await RobotSession(websocket, simulator).run()

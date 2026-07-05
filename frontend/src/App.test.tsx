@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -6,6 +6,7 @@ import App from './App'
 
 class MockWebSocket {
   static instance: MockWebSocket
+  static instances: MockWebSocket[] = []
 
   onmessage: ((event: MessageEvent) => void) | null = null
   onclose: (() => void) | null = null
@@ -14,6 +15,7 @@ class MockWebSocket {
 
   constructor() {
     MockWebSocket.instance = this
+    MockWebSocket.instances.push(this)
   }
 
   send(data: string) {
@@ -39,6 +41,8 @@ describe('App', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
+    MockWebSocket.instances = []
   })
 
   it('keeps emergency stop available when telemetry is stale', () => {
@@ -100,7 +104,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: /Simulate Failure/,
+        name: /Possible Failure/,
       }),
     )
 
@@ -189,7 +193,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: /Simulate Failure/,
+        name: /Possible Failure/,
       }),
     )
 
@@ -214,6 +218,49 @@ describe('App', () => {
         name: /Telemetry delay/,
       }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows detailed failure scenario context after a hover delay', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    render(<App />)
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /Possible Failure/,
+      }),
+    )
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(
+      screen.getByRole('radio', {
+        name: /Lose completion after execution/,
+      }),
+    )
+
+    act(() => {
+      vi.advanceTimersByTime(149)
+    })
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'The robot finishes the move, then the WebSocket drops before the completion event arrives.',
+    )
+
+    fireEvent.mouseLeave(
+      screen.getByRole('radio', {
+        name: /Lose completion after execution/,
+      }),
+    )
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('shows commanded and observed state separately', async () => {
@@ -250,10 +297,10 @@ describe('App', () => {
       }),
     )
 
-    expect(JSON.parse(MockWebSocket.instance.sent[0])).toEqual({
+    expect(JSON.parse(MockWebSocket.instance.sent[0])).toEqual(expect.objectContaining({
       type: 'command',
       command: 'move_forward',
-    })
+    }))
 
     act(() => {
       MockWebSocket.instance.emit({
@@ -442,6 +489,123 @@ describe('App', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps a lost completion unknown until authoritative reconciliation', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+
+    render(<App />)
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'session_started',
+        sessionEpoch: 1,
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'connection_status',
+        status: 'live',
+        sessionEpoch: 1,
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'robot_state',
+        sessionEpoch: 1,
+        sequence: 1,
+        observedAtMs: Date.now(),
+        mode: 'idle',
+        commandedPose: { x: 0, y: 0, heading: 0 },
+        actualPose: { x: 0, y: 0, heading: 0 },
+      })
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /Move forward/,
+      }),
+    )
+
+    const sent = JSON.parse(MockWebSocket.instance.sent[0])
+
+    act(() => {
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        sessionEpoch: 1,
+        commandId: sent.commandId,
+        status: 'acknowledged',
+      })
+
+      MockWebSocket.instance.emit({
+        type: 'command_status',
+        sessionEpoch: 1,
+        commandId: sent.commandId,
+        status: 'executing',
+      })
+
+      MockWebSocket.instance.disconnect()
+    })
+
+    expect(screen.getByText('Outcome unknown')).toBeInTheDocument()
+    expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('button', {
+        name: /Move forward/,
+      }),
+    ).toBeDisabled()
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+
+    const reconnected = MockWebSocket.instance
+    expect(MockWebSocket.instances.length).toBe(2)
+
+    act(() => {
+      reconnected.emit({
+        type: 'session_started',
+        sessionEpoch: 2,
+      })
+
+      reconnected.emit({
+        type: 'connection_status',
+        status: 'live',
+        sessionEpoch: 2,
+      })
+
+      reconnected.emit({
+        type: 'command_status',
+        sessionEpoch: 1,
+        commandId: sent.commandId,
+        status: 'completed',
+      })
+    })
+
+    expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(/ignored event from expired session epoch 1/i),
+    ).toBeInTheDocument()
+
+    act(() => {
+      reconnected.emit({
+        type: 'command_reconciliation',
+        sessionEpoch: 2,
+        commandId: sent.commandId,
+        originalSessionEpoch: 1,
+        resolvedStatus: 'completed',
+        reason:
+          'Authoritative backend state confirms completion after connection loss.',
+      })
+    })
+
+    expect(
+      screen.getByText(
+        'Completed — reconciled from authoritative backend state',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('COMPLETED — RECONCILED').length,
+    ).toBeGreaterThan(0)
+  })
+
   it('toggles emergency stop and faults with one click', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
 
@@ -481,10 +645,10 @@ describe('App', () => {
         MockWebSocket.instance.sent.length - 1
       ]
 
-    expect(JSON.parse(sent)).toEqual({
+    expect(JSON.parse(sent)).toEqual(expect.objectContaining({
       type: 'command',
       command: 'emergency_stop',
-    })
+    }))
 
     act(() => {
       MockWebSocket.instance.emit({
@@ -513,14 +677,14 @@ describe('App', () => {
         MockWebSocket.instance.sent.length - 1
       ]
 
-    expect(JSON.parse(sent)).toEqual({
+    expect(JSON.parse(sent)).toEqual(expect.objectContaining({
       type: 'command',
       command: 'reset',
-    })
+    }))
 
     await user.click(
       screen.getByRole('button', {
-        name: /Simulate Failure/,
+        name: /Possible Failure/,
       }),
     )
 

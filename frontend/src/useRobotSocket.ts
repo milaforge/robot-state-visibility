@@ -7,14 +7,18 @@ import {
 } from './telemetry'
 import { isCommandProblem } from './utils'
 
+const RECONNECT_DELAY_MS = 500
+
 export type ConnectionState =
   | 'connecting'
   | 'live'
   | 'disconnected'
 
 export type CommandStatus =
+  | 'sent'
   | 'acknowledged'
   | 'executing'
+  | 'unknown'
   | 'completed'
   | 'failed'
   | 'aborted'
@@ -37,6 +41,7 @@ export type RobotMode = 'idle' | 'emergency_stopped'
 export type ActiveFault =
   | 'telemetry_delay'
   | 'rotation_failure'
+  | 'lost_completion_after_execution'
   | null
 
 export type CommandName =
@@ -46,17 +51,28 @@ export type CommandName =
   | 'reset'
 
 export type SentCommand = {
-  id: number
+  id: string
   command: CommandName
+}
+
+export type SocketSystemEvent = {
+  id: number
+  title: string
 }
 
 type ServerMessage =
   | {
+    type: 'session_started'
+    sessionEpoch: number
+  }
+  | {
     type: 'connection_status'
-    status: 'live'
+    status: 'live' | 'disconnected'
+    sessionEpoch?: number
   }
   | {
     type: 'robot_state'
+    sessionEpoch?: number
     sequence: number
     observedAtMs: number
     mode: RobotMode
@@ -65,18 +81,51 @@ type ServerMessage =
   }
   | {
     type: 'command_status'
+    sessionEpoch?: number
+    commandId?: string
     status: CommandStatus
     message?: string
   }
   | {
+    type: 'command_reconciliation'
+    sessionEpoch: number
+    commandId: string
+    originalSessionEpoch: number
+    resolvedStatus: CommandStatus
+    reason: string
+  }
+  | {
     type: 'fault_status'
+    sessionEpoch?: number
     fault: Exclude<ActiveFault, null>
     enabled: boolean
   }
 
+function createCommandId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `command-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function isExpired(message: ServerMessage, currentEpoch: number | null) {
+  return (
+    currentEpoch !== null &&
+    'sessionEpoch' in message &&
+    typeof message.sessionEpoch === 'number' &&
+    message.sessionEpoch < currentEpoch
+  )
+}
+
 export function useRobotSocket(url: string) {
   const socketRef = useRef<WebSocket | null>(null)
   const observedAtRef = useRef<number | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const currentSessionEpochRef = useRef<number | null>(null)
+  const commandStatusRef = useRef<CommandStatus | null>(null)
+  const sentCommandRef = useRef<SentCommand | null>(null)
+  const nextSystemEventId = useRef(1)
 
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('connecting')
@@ -84,8 +133,10 @@ export function useRobotSocket(url: string) {
   const [robotState, setRobotState] =
     useState<RobotState | null>(null)
 
-  const [commandStatus, setCommandStatus] =
+  const [commandStatus, setCommandStatusState] =
     useState<CommandStatus | null>(null)
+
+  const [commandReconciled, setCommandReconciled] = useState(false)
 
   const [failureMessage, setFailureMessage] =
     useState<string | null>(null)
@@ -98,67 +149,152 @@ export function useRobotSocket(url: string) {
   const [activeFault, setActiveFault] =
     useState<ActiveFault>(null)
 
-  const sentCommandId = useRef(0)
-
-  const [sentCommand, setSentCommand] =
+  const [sentCommand, setSentCommandState] =
     useState<SentCommand | null>(null)
+
+  const [systemEvents, setSystemEvents] = useState<SocketSystemEvent[]>([])
+
+  const appendSystemEvent = useCallback((title: string) => {
+    setSystemEvents((current) => [
+      ...current,
+      {
+        id: nextSystemEventId.current++,
+        title,
+      },
+    ])
+  }, [])
+
+  const setCommandStatus = useCallback((status: CommandStatus | null) => {
+    commandStatusRef.current = status
+    setCommandStatusState(status)
+  }, [])
 
   useEffect(() => {
     let active = true
 
-    const socket = new WebSocket(url)
-    socketRef.current = socket
+    function scheduleReconnect() {
+      if (!active || reconnectTimerRef.current !== null) return
 
-    socket.onmessage = (event) => {
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null
+        connect()
+      }, RECONNECT_DELAY_MS)
+    }
+
+    function markDisconnected() {
+      setConnectionState('disconnected')
+
+      if (
+        sentCommandRef.current &&
+        (
+          commandStatusRef.current === 'acknowledged' ||
+          commandStatusRef.current === 'executing'
+        )
+      ) {
+        setCommandStatus('unknown')
+        setCommandReconciled(false)
+        setFailureMessage(
+          'Connection was lost after acknowledgement. The command may have completed. Automatic retry is disabled until reconciliation.',
+        )
+        appendSystemEvent('connection lost')
+      }
+    }
+
+    function connect() {
       if (!active) return
 
-      const message = JSON.parse(event.data) as ServerMessage
+      setConnectionState('connecting')
+      const socket = new WebSocket(url)
+      socketRef.current = socket
 
-      if (message.type === 'connection_status') {
-        setConnectionState(message.status)
-      }
+      socket.onmessage = (event) => {
+        if (!active) return
 
-      if (message.type === 'robot_state') {
-        observedAtRef.current = message.observedAtMs
+        const message = JSON.parse(event.data) as ServerMessage
 
-        const age = computeTelemetryAge(message.observedAtMs)
+        if (isExpired(message, currentSessionEpochRef.current)) {
+          appendSystemEvent(
+            `ignored event from expired session epoch ${message.sessionEpoch}`,
+          )
+          return
+        }
 
-        setTelemetryAgeMs(age)
-        setTelemetryState(classifyTelemetry(age))
+        if (message.type === 'session_started') {
+          currentSessionEpochRef.current = message.sessionEpoch
+          appendSystemEvent(`new session epoch started ${message.sessionEpoch}`)
+          return
+        }
 
-        setRobotState({
-          mode: message.mode,
-          commandedPose: message.commandedPose,
-          actualPose: message.actualPose,
-        })
-      }
+        if (message.type === 'connection_status') {
+          setConnectionState(message.status)
+        }
 
-      if (message.type === 'command_status') {
-        setCommandStatus(message.status)
+        if (message.type === 'robot_state') {
+          observedAtRef.current = message.observedAtMs
 
-        setFailureMessage(
-          isCommandProblem(message.status)
-            ? message.message ?? 'Command did not complete.'
-            : null,
-        )
-      }
+          const age = computeTelemetryAge(message.observedAtMs)
 
-      if (message.type === 'fault_status') {
-        setActiveFault(
-          message.enabled ? message.fault : null,
-        )
-        if (!message.enabled) {
-          setCommandStatus(null)
+          setTelemetryAgeMs(age)
+          setTelemetryState(classifyTelemetry(age))
+
+          setRobotState({
+            mode: message.mode,
+            commandedPose: message.commandedPose,
+            actualPose: message.actualPose,
+          })
+        }
+
+        if (message.type === 'command_status') {
+          if (
+            message.commandId &&
+            sentCommandRef.current &&
+            message.commandId !== sentCommandRef.current.id
+          ) {
+            return
+          }
+
+          setCommandStatus(message.status)
+          setCommandReconciled(false)
+
+          setFailureMessage(
+            isCommandProblem(message.status)
+              ? message.message ?? 'Command did not complete.'
+              : null,
+          )
+        }
+
+        if (message.type === 'command_reconciliation') {
+          if (message.commandId !== sentCommandRef.current?.id) {
+            return
+          }
+
+          setCommandStatus(message.resolvedStatus)
+          setCommandReconciled(true)
           setFailureMessage(null)
+          appendSystemEvent('command outcome reconciled')
+        }
+
+        if (message.type === 'fault_status') {
+          setActiveFault(
+            message.enabled ? message.fault : null,
+          )
+          if (!message.enabled) {
+            setCommandStatus(null)
+            setCommandReconciled(false)
+            setFailureMessage(null)
+          }
         }
       }
-    }
 
-    socket.onclose = () => {
-      if (active) {
-        setConnectionState('disconnected')
+      socket.onclose = () => {
+        if (!active) return
+
+        markDisconnected()
+        scheduleReconnect()
       }
     }
+
+    connect()
 
     const timer = window.setInterval(() => {
       if (observedAtRef.current === null) return
@@ -171,10 +307,13 @@ export function useRobotSocket(url: string) {
 
     return () => {
       window.clearInterval(timer)
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current)
+      }
       active = false
-      socket.close()
+      socketRef.current?.close()
     }
-  }, [url])
+  }, [appendSystemEvent, setCommandStatus, url])
 
   const send = useCallback((message: unknown) => {
     socketRef.current?.send(JSON.stringify(message))
@@ -182,22 +321,27 @@ export function useRobotSocket(url: string) {
 
   const sendCommand = useCallback(
     (command: CommandName) => {
-      setCommandStatus(null)
+      setCommandStatus('sent')
+      setCommandReconciled(false)
       setFailureMessage(null)
 
-      sentCommandId.current += 1
-
-      setSentCommand({
-        id: sentCommandId.current,
+      const commandId = createCommandId()
+      const nextCommand = {
+        id: commandId,
         command,
-      })
+      }
+
+      sentCommandRef.current = nextCommand
+      setSentCommandState(nextCommand)
 
       send({
         type: 'command',
+        commandId,
         command,
+        sessionEpoch: currentSessionEpochRef.current ?? 0,
       })
     },
-    [send],
+    [send, setCommandStatus],
   )
 
   const moveForward = useCallback(() => {
@@ -231,11 +375,13 @@ export function useRobotSocket(url: string) {
     connectionState,
     robotState,
     commandStatus,
+    commandReconciled,
     failureMessage,
     telemetryState,
     telemetryAgeMs,
     activeFault,
     sentCommand,
+    systemEvents,
     moveForward,
     rotateRight,
     enableFault,

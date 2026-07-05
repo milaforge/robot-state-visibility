@@ -10,7 +10,12 @@ type EventLogProps = {
 }
 
 function statusClass(status: string) {
-  return `lifecycle-status lifecycle-status--${status.toLowerCase()}`
+  const modifier = status
+    .toLowerCase()
+    .replaceAll(' — ', '-')
+    .replaceAll(' ', '-')
+
+  return `lifecycle-status lifecycle-status--${modifier}`
 }
 
 export default function EventLog({
