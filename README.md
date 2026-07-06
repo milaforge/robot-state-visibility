@@ -63,14 +63,14 @@ flowchart LR
     E --> F[6. Reconciliation]
 ```
 
-| Stage                   | What it establishes                                                                 |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| **Request**             | The operator expressed intent. Nothing has been accepted or executed yet.           |
-| **Acknowledgement**     | The backend accepted or rejected the command. Acceptance is not completion.         |
-| **Execution**           | The command is being attempted and may complete, fail, or be interrupted.           |
-| **Observation**         | Telemetry reports what the robot was last observed doing.                           |
-| **Completion delivery** | The execution result reaches the operator interface.                                |
-| **Reconciliation**      | An uncertain result is resolved against the backend command ledger after reconnect. |
+| Stage | What it establishes |
+| --- | --- |
+| **Request** | The operator expressed intent. Nothing has been accepted or executed yet. |
+| **Acknowledgement** | The backend accepted or rejected the command. Acceptance is not completion. |
+| **Execution** | The command is being attempted and may complete, fail, or be interrupted. |
+| **Observation** | Telemetry reports what the robot was last observed doing. |
+| **Completion delivery** | The execution result reaches the operator interface. |
+| **Reconciliation** | An uncertain result is resolved against the backend command ledger after reconnect. |
 
 ## Failure scenarios
 
@@ -109,11 +109,8 @@ A movement completes, but the connection drops before the completion event reach
 The UI marks the command `UNKNOWN`, disables retry, and waits for reconciliation from the in-memory backend command ledger.
 
 <p align="center">
-<video controls src="res/lost-completion-reconciliation.webm" title="reconciliation"></video>
-</p>
-<p align="center">
- <a href="res/lost-completion-reconciliation.webm">
-    <strong>or download the reconciliation video</strong>
+  <a href="res/lost-completion-reconciliation.webm">
+    <strong>▶ Replay the completion-delivery failure</strong>
   </a>
 </p>
 
