@@ -840,11 +840,11 @@ summary:focus-visible {
 
 .failure-alert {
   position: absolute;
-  top: 68px;
+  top: 150px;
   right: 16px;
   display: flex;
   gap: 10px;
-  max-width: 340px;
+  max-width: 250px;
   padding: 11px 13px;
   border: 1px solid rgba(239, 68, 68, 0.45);
   border-radius: 11px;
@@ -2028,7 +2028,7 @@ summary:focus-visible {
   }
 
   .failure-alert {
-    top: 10px;
+    top: 255px;
     right: 10px;
     max-width: 260px;
   }
