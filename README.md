@@ -100,6 +100,11 @@ Backend tests cover command idempotency, telemetry staleness and recovery, emerg
 pnpm test
 ```
 
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the theory behind the state separation and invariants, and how the implementation enforces them.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, workflow, verification, and conventions for changes.
+
 ## Demo limitations
 
 The WebSocket session epoch, simulated robot state, and command ledger are kept in backend process memory. Restarting the backend resets command history, robot pose, active faults, queued stale events, and reconciliation state. This is intentional for the deterministic demo and is not a production durability or safety design.
