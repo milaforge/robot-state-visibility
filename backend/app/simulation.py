@@ -22,7 +22,7 @@ class SimulationConfig:
     rotation_duration_seconds: float = 1.2
     rotation_steps: int = 8
     lost_completion_disconnect_seconds: float = 0.45
-    stale_completion_delivery_seconds: float = 0.15
+    stale_completion_delivery_seconds: float = 4.0
 
 
 class RobotMotion:

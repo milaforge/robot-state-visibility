@@ -8,6 +8,7 @@ import {
 import { isCommandProblem } from './utils'
 
 const RECONNECT_DELAY_MS = 500
+const UNKNOWN_OUTCOME_RECONNECT_DELAY_MS = 5000
 
 export type ConnectionState =
   | 'connecting'
@@ -175,10 +176,17 @@ export function useRobotSocket(url: string) {
     function scheduleReconnect() {
       if (!active || reconnectTimerRef.current !== null) return
 
+      // A command with an unknown outcome reconnects slowly so the operator
+      // can see the ambiguous state before reconciliation resolves it.
+      const delay =
+        commandStatusRef.current === 'unknown'
+          ? UNKNOWN_OUTCOME_RECONNECT_DELAY_MS
+          : RECONNECT_DELAY_MS
+
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null
         connect()
-      }, RECONNECT_DELAY_MS)
+      }, delay)
     }
 
     function markDisconnected() {

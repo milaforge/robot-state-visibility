@@ -22,7 +22,7 @@ from app.state import Message, RobotState
 
 SendMessage = Callable[[Message], Awaitable[None]]
 
-UNKNOWN_RECONCILIATION_DELAY_SECONDS = 0.7
+UNKNOWN_RECONCILIATION_DELAY_SECONDS = 1.0
 
 
 @dataclass

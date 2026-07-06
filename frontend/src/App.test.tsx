@@ -110,7 +110,7 @@ describe('App', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /Rotation failure/,
+        name: /Execution Error/,
       }),
     )
 
@@ -205,7 +205,7 @@ describe('App', () => {
 
     expect(
       screen.getByRole('radio', {
-        name: /Telemetry delay/,
+        name: /Observation Delay/,
       }),
     ).toBeInTheDocument()
 
@@ -215,7 +215,7 @@ describe('App', () => {
 
     expect(
       screen.queryByRole('radio', {
-        name: /Telemetry delay/,
+        name: /Observation Delay/,
       }),
     ).not.toBeInTheDocument()
   })
@@ -236,7 +236,7 @@ describe('App', () => {
 
     fireEvent.mouseEnter(
       screen.getByRole('radio', {
-        name: /Lose completion after execution/,
+        name: /Completion Delivery/,
       }),
     )
 
@@ -251,12 +251,12 @@ describe('App', () => {
     })
 
     expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'The robot finishes the move, then the WebSocket drops before the completion event arrives.',
+      'The robot finishes moving, then the connection drops before the completion event reaches the UI. The outcome remains unknown until reconciliation.',
     )
 
     fireEvent.mouseLeave(
       screen.getByRole('radio', {
-        name: /Lose completion after execution/,
+        name: /Completion Delivery/,
       }),
     )
 
@@ -553,7 +553,13 @@ describe('App', () => {
     ).toBeDisabled()
 
     act(() => {
-      vi.advanceTimersByTime(500)
+      vi.advanceTimersByTime(4999)
+    })
+
+    expect(MockWebSocket.instances.length).toBe(1)
+
+    act(() => {
+      vi.advanceTimersByTime(1)
     })
 
     const reconnected = MockWebSocket.instance
@@ -695,7 +701,7 @@ describe('App', () => {
     expect(noFault).toHaveAttribute('aria-checked', 'true')
 
     const telemetryDelay = screen.getByRole('radio', {
-      name: /Telemetry delay/,
+      name: /Observation Delay/,
     })
 
     expect(telemetryDelay).toHaveAttribute(
