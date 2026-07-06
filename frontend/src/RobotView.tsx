@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import type { RobotState } from "./useRobotSocket";
 
@@ -15,6 +15,9 @@ type RobotViewProps = {
 };
 
 const POSITION_SCALE = 10;
+const TRAIL_LENGTH = 14;
+
+type TrailPoint = { x: number; y: number; id: number };
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(Math.max(value, minimum), maximum);
@@ -58,6 +61,30 @@ export default function RobotView({
 
   const headingError = angularDifference(commandedHeading, actualHeading);
 
+  const positionError = Math.hypot(commandedX - actualX, commandedY - actualY);
+  const positionDiverged = positionError > 0.05;
+
+  const telemetryDegraded =
+    livenessState === "stale" || livenessState === "offline";
+
+  const [trail, setTrail] = useState<TrailPoint[]>([]);
+
+  const lastPoint = trail[trail.length - 1];
+  const moved =
+    robotState !== null &&
+    (lastPoint === undefined ||
+      Math.abs(lastPoint.x - actualX) > 0.001 ||
+      Math.abs(lastPoint.y - actualY) > 0.001);
+
+  if (moved) {
+    setTrail(
+      [
+        ...trail,
+        { x: actualX, y: actualY, id: (lastPoint?.id ?? 0) + 1 },
+      ].slice(-TRAIL_LENGTH),
+    );
+  }
+
   const workcellStyle = {
     "--grid-x": `${-actualX * 42}px`,
     "--grid-y": `${actualY * 42}px`,
@@ -75,9 +102,75 @@ export default function RobotView({
       role="img"
       aria-label="Robot moving through the workcell"
     >
-      <div className="workcell-surface">
+      <div
+        className={
+          telemetryDegraded
+            ? "workcell-surface workcell-surface--degraded"
+            : "workcell-surface"
+        }
+      >
         {robotState?.mode === "emergency_stopped" && (
           <div className="workcell-emergency-layer" />
+        )}
+
+        {!telemetryDegraded &&
+          trail.map((point, index) => {
+            const left = 50 + (point.x - actualX) * POSITION_SCALE;
+            const top = 50 - (point.y - actualY) * POSITION_SCALE;
+
+            if (left < 2 || left > 98 || top < 2 || top > 98) {
+              return null;
+            }
+
+            return (
+              <span
+                key={point.id}
+                className="observed-trail-dot"
+                style={{
+                  left: `${left}%`,
+                  top: `${top}%`,
+                  opacity: 0.08 + (0.5 * (index + 1)) / trail.length,
+                }}
+              />
+            );
+          })}
+
+        {positionDiverged && (
+          <>
+            <svg
+              className="divergence-layer"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <line
+                className={
+                  rotationFailed
+                    ? "divergence-line divergence-line--failed"
+                    : "divergence-line"
+                }
+                x1="50"
+                y1="50"
+                x2={commandedLeft}
+                y2={commandedTop}
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+
+            <span
+              className={
+                rotationFailed
+                  ? "divergence-label divergence-label--failed"
+                  : "divergence-label"
+              }
+              style={{
+                left: `${(50 + commandedLeft) / 2}%`,
+                top: `${(50 + commandedTop) / 2}%`,
+              }}
+            >
+              Δ {positionError.toFixed(1)}
+            </span>
+          </>
         )}
 
         <div
@@ -109,7 +202,14 @@ export default function RobotView({
           </div>
         )}
 
-        <div data-testid="observed-robot" className="observed-marker">
+        <div
+          data-testid="observed-robot"
+          className={
+            telemetryDegraded
+              ? "observed-marker observed-marker--ghost"
+              : "observed-marker"
+          }
+        >
           {robotState?.mode === "emergency_stopped" && (
             <span className="emergency-halo" />
           )}
@@ -126,6 +226,10 @@ export default function RobotView({
               transform: `rotate(${actualHeading}deg)`,
             }}
           />
+
+          {telemetryDegraded && (
+            <span className="last-known-tag">Last known state</span>
+          )}
         </div>
 
         {livenessState !== undefined && (

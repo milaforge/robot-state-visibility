@@ -281,6 +281,96 @@ summary:focus-visible {
   background: rgba(239, 68, 68, 0.07);
 }
 
+/* Degraded telemetry: the surface stops claiming a live picture */
+
+.workcell-surface--degraded {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px,
+      transparent 1px),
+    linear-gradient(90deg,
+      rgba(148, 163, 184, 0.05) 1px,
+      transparent 1px);
+}
+
+.workcell-surface--degraded::after {
+  background:
+    radial-gradient(circle at center,
+      rgba(4, 7, 14, 0.2) 30%,
+      rgba(4, 7, 14, 0.62) 100%);
+}
+
+/* Motion trail */
+
+.observed-trail-dot {
+  position: absolute;
+  z-index: 2;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(129, 140, 248, 0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition:
+    left 180ms linear,
+    top 180ms linear;
+}
+
+/* Commanded vs observed divergence */
+
+.divergence-layer {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.divergence-line {
+  stroke: var(--commanded);
+  stroke-width: 2;
+  stroke-dasharray: 7 6;
+  stroke-linecap: round;
+  opacity: 0.8;
+  animation: divergenceFlow 900ms linear infinite;
+}
+
+.divergence-line--failed {
+  stroke: var(--danger-strong);
+}
+
+@keyframes divergenceFlow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+.divergence-label {
+  position: absolute;
+  z-index: 4;
+  padding: 3px 8px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 999px;
+  background: rgba(20, 16, 44, 0.88);
+  color: #c4b5fd;
+  font-size: 0.6rem;
+  font-weight: 800;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition:
+    left 180ms linear,
+    top 180ms linear;
+}
+
+.divergence-label--failed {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(56, 13, 13, 0.88);
+  color: #fca5a5;
+}
+
 /* Markers */
 
 .commanded-marker,
@@ -343,6 +433,35 @@ summary:focus-visible {
 .observed-marker {
   top: 50%;
   left: 50%;
+  transition:
+    filter 400ms ease,
+    opacity 400ms ease;
+}
+
+.observed-marker--ghost {
+  filter: grayscale(0.85);
+  opacity: 0.45;
+}
+
+.observed-marker--ghost .observed-shell {
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.1);
+}
+
+.last-known-tag {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  padding: 4px 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: rgba(13, 18, 30, 0.85);
+  color: var(--text-soft);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateX(-50%);
 }
 
 .observed-shell {
