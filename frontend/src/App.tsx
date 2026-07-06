@@ -217,6 +217,7 @@ export default function App() {
             livenessStyle={livenessStyle}
             connectionState={connectionState}
             telemetryState={telemetryState}
+            telemetryAgeMs={telemetryAgeMs}
             onOpenConnectionDetails={() => setConnectionDetailsOpen(true)}
           />
 

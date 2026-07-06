@@ -11,6 +11,7 @@ type RobotViewProps = {
   livenessStyle?: CSSProperties;
   connectionState?: string;
   telemetryState?: string;
+  telemetryAgeMs?: number;
   onOpenConnectionDetails?: () => void;
 };
 
@@ -29,6 +30,14 @@ function angularDifference(commanded: number, observed: number) {
   return Math.abs(difference);
 }
 
+function formatObservationAge(ageMs: number) {
+  if (ageMs < 1000) {
+    return `${Math.round(ageMs)}ms`;
+  }
+
+  return `${(ageMs / 1000).toFixed(1)}s`;
+}
+
 export default function RobotView({
   robotState,
   rotationFailed = false,
@@ -36,6 +45,7 @@ export default function RobotView({
   livenessStyle,
   connectionState,
   telemetryState,
+  telemetryAgeMs,
   onOpenConnectionDetails,
 }: RobotViewProps) {
   const actualX = robotState?.actualPose.x ?? 0;
@@ -257,18 +267,36 @@ export default function RobotView({
           </button>
         )}
 
-        <div className="workcell-pose-stack">
-          <span>
-            X<strong>{actualX.toFixed(1)}</strong>
-          </span>
+        <div className="pose-readout">
+          <div className="pose-readout-cell">
+            <small>X</small>
+            <strong>{actualX.toFixed(1)}</strong>
+          </div>
 
-          <span>
-            Y<strong>{actualY.toFixed(1)}</strong>
-          </span>
+          <div className="pose-readout-cell">
+            <small>Y</small>
+            <strong>{actualY.toFixed(1)}</strong>
+          </div>
 
-          <span>
-            H<strong>{Math.round(actualHeading % 360)}°</strong>
-          </span>
+          <div className="pose-readout-cell">
+            <small>Hdg</small>
+            <strong>{Math.round(actualHeading % 360)}°</strong>
+          </div>
+
+          {telemetryAgeMs !== undefined && (
+            <div
+              className={
+                telemetryDegraded
+                  ? "pose-readout-cell pose-readout-cell--age pose-readout-cell--degraded"
+                  : livenessState === "delayed"
+                    ? "pose-readout-cell pose-readout-cell--age pose-readout-cell--delayed"
+                    : "pose-readout-cell pose-readout-cell--age"
+              }
+            >
+              <small>Obs age</small>
+              <strong>{formatObservationAge(telemetryAgeMs)}</strong>
+            </div>
+          )}
         </div>
 
         <div className="workcell-legend">
