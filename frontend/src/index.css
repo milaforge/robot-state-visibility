@@ -1183,7 +1183,8 @@ summary:focus-visible {
 .scenario-menu {
   position: relative;
   width: 100%;
-  z-index: 80;
+  /* Above sibling control zones (<= 8) but below drawer/modal overlays (>= 30) */
+  z-index: 10;
 }
 
 .scenario-launcher {
