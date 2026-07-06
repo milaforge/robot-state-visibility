@@ -24,6 +24,10 @@
   --panel-strong: #141b2c;
   --inset: #0b101c;
 
+  /* Translucent neutral surfaces (RGB triplets for rgba()) */
+  --overlay-rgb: 13, 18, 30;
+  --raised-rgb: 30, 38, 55;
+
   /* Lines */
   --line: #1e2637;
   --line-strong: #2c3750;
@@ -41,6 +45,38 @@
   --warn: #fbbf24;
   --danger: #f87171;
   --danger-strong: #ef4444;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #eef1f7;
+  --panel: #ffffff;
+  --panel-strong: #f5f7fb;
+  --inset: #e7ebf3;
+
+  /* Translucent neutral surfaces (RGB triplets for rgba()) */
+  --overlay-rgb: 255, 255, 255;
+  --raised-rgb: 226, 232, 240;
+
+  /* Lines */
+  --line: #d8dfea;
+  --line-strong: #bcc7d9;
+
+  /* Text */
+  --text: #16202f;
+  --text-soft: #4b596e;
+  --text-faint: #8592a6;
+
+  /* Accents */
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --commanded: #7c3aed;
+  --ok: #059669;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
 }
 
 * {
@@ -92,7 +128,7 @@ summary:focus-visible {
   gap: 18px;
   padding: 0 22px;
   border-bottom: 1px solid var(--line);
-  background: rgba(13, 18, 30, 0.82);
+  background: rgba(var(--overlay-rgb), 0.82);
   backdrop-filter: blur(12px);
 }
 
@@ -138,6 +174,27 @@ summary:focus-visible {
   margin: 2px 0 0;
   color: var(--text-faint);
   font-size: 0.7rem;
+}
+
+.theme-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--panel-strong);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .events-button {
@@ -466,7 +523,7 @@ summary:focus-visible {
   padding: 4px 9px;
   border: 1px dashed var(--line-strong);
   border-radius: 999px;
-  background: rgba(13, 18, 30, 0.85);
+  background: rgba(var(--overlay-rgb), 0.85);
   color: var(--text-soft);
   font-size: 0.58rem;
   font-weight: 800;
@@ -592,7 +649,7 @@ summary:focus-visible {
   padding: 6px 10px;
   border: 0;
   border-radius: 10px;
-  background: rgba(13, 18, 30, 0.72);
+  background: rgba(var(--overlay-rgb), 0.72);
   color: var(--text-soft);
   cursor: pointer;
   text-align: left;
@@ -600,7 +657,7 @@ summary:focus-visible {
 }
 
 .liveness-button:hover {
-  background: rgba(30, 38, 55, 0.85);
+  background: rgba(var(--raised-rgb), 0.85);
 }
 
 .liveness-button small,
@@ -683,7 +740,7 @@ summary:focus-visible {
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(13, 18, 30, 0.78);
+  background: rgba(var(--overlay-rgb), 0.78);
   box-shadow: 0 4px 14px rgba(2, 5, 12, 0.4);
   backdrop-filter: blur(8px);
   pointer-events: none;
@@ -739,7 +796,7 @@ summary:focus-visible {
   padding: 7px 11px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(13, 18, 30, 0.78);
+  background: rgba(var(--overlay-rgb), 0.78);
   color: var(--text-soft);
   font-size: 0.62rem;
   box-shadow: 0 4px 14px rgba(2, 5, 12, 0.4);
@@ -1209,7 +1266,7 @@ summary:focus-visible {
 
 .scenario-launcher:hover {
   border-color: var(--accent);
-  background: #182034;
+  background: rgba(var(--raised-rgb), 0.6);
 }
 
 .scenario-launcher--active {
@@ -1453,7 +1510,7 @@ summary:focus-visible {
   padding: 9px 11px;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
-  background: #1c2438;
+  background: rgba(var(--raised-rgb), 1);
   color: var(--text);
   box-shadow: 0 10px 28px rgba(2, 5, 12, 0.6);
   font-size: 0.61rem;
@@ -1467,7 +1524,7 @@ summary:focus-visible {
   bottom: -5px;
   width: 9px;
   height: 9px;
-  background: #1c2438;
+  background: rgba(var(--raised-rgb), 1);
   border-right: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line-strong);
   content: "";

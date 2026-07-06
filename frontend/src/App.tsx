@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import EventLog from "./EventLog";
 import { MotionControlButton } from "./MotionControlButton";
@@ -49,7 +49,12 @@ const demoScenarios: Array<{
   },
 ];
 
+type Theme = "dark" | "light";
+
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    localStorage.getItem("theme") === "light" ? "light" : "dark",
+  );
   const [eventsOpen, setEventsOpen] = useState(false);
   const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false);
   const [tooltipScenarioId, setTooltipScenarioId] = useState<ScenarioId | null>(
@@ -88,6 +93,11 @@ export default function App() {
     sentCommand,
     systemEvents,
   });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   const emergencyStopped = robotState?.mode === "emergency_stopped";
 
@@ -182,6 +192,21 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          <button
+            className="theme-toggle"
+            type="button"
+            aria-label={
+              theme === "dark"
+                ? "Switch to light theme"
+                : "Switch to dark theme"
+            }
+            onClick={() =>
+              setTheme((current) => (current === "dark" ? "light" : "dark"))
+            }
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+
           <button
             className="events-button"
             type="button"
