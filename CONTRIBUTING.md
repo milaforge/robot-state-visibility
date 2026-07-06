@@ -1,86 +1,175 @@
 # Contributing
 
-This repository is a small failure-mode study, but it is maintained with the same hygiene as production code: every change is expected to keep tests, lint, and build green, and behavioral changes are expected to come with a regression test.
+This repository is a small failure-mode study. Changes should preserve its narrow purpose: making command, observation, delivery, and uncertainty states explicit and testable.
+
+Behavioral changes are expected to include regression coverage, and every change should keep tests, linting, and build checks green.
 
 ## Prerequisites
 
-- **Node.js 24** and **pnpm 10** (the exact pnpm version is pinned via `packageManager` in [package.json](package.json); `corepack enable` picks it up automatically)
-- **Python 3.12** and [**uv**](https://docs.astral.sh/uv/) for the backend
-- **Docker** with Compose (only needed for the containerized run modes)
+- **Node.js 24**
+- **pnpm 10.32.1**, pinned through `packageManager` in [`package.json`](package.json)
+- **Python 3.12 or newer**
+- [**uv**](https://docs.astral.sh/uv/) for backend dependencies
+- **Docker with Compose** for containerized run modes
+
+CI uses Node.js 24 and Python 3.12.
 
 ## Repository layout
 
-```
-backend/            FastAPI + WebSocket robot simulator
-  app/              protocol, state, simulation, session logic
-  tests/            pytest suite
-frontend/           React 19 + Vite operator UI
-  src/              components, hooks, and their Vitest suites
-docs/               design notes and architecture documentation
-compose.yml         production-like containers
-compose.dev.yml     dev overrides (hot reload, bind mounts)
-.github/workflows/  CI (test, lint, build for both sides)
+```text
+backend/            FastAPI and WebSocket robot simulator
+  app/              protocol, state, simulation, and session logic
+  tests/            pytest regression suite
+
+frontend/           React and Vite operator interface
+  src/              components, hooks, state logic, and Vitest suites
+
+docs/               architecture and design documentation
+res/                README screenshots and demo recording
+compose.yml         containerized demo runtime
+compose.dev.yml     development overrides with hot reload
+.github/workflows/  CI verification
 ```
 
-Before changing behavior, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — it explains the invariants this project exists to demonstrate and which parts of the code enforce them.
+Before changing behavior, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). It explains the invariants and identifies which guarantees are intentionally outside the demo.
 
-## Getting started
+## Setup
 
 ```sh
-pnpm install                 # frontend workspace dependencies
-cd backend && uv sync        # backend virtualenv + dependencies
+pnpm install
+cd backend && uv sync --locked
 ```
 
-### Running locally
+## Run
 
-Two equivalent options:
+### Containerized demo
 
 ```sh
-# Containerized, with hot reload on both sides
+docker compose up --build
+```
+
+Open `http://localhost:3000`.
+
+### Containerized development with hot reload
+
+```sh
 pnpm dev
-
-# Or run the processes directly
-pnpm backend:dev             # uvicorn on :8000
-pnpm frontend:dev            # vite on :5173, proxies /ws to the backend
 ```
 
-The containerized UI is served at http://localhost:3000; the bare Vite dev server at http://localhost:5173.
+### Run processes directly
 
-## Verifying your change
-
-CI runs exactly these three commands ([.github/workflows/ci.yml](.github/workflows/ci.yml)); run them before pushing:
+Use separate terminals:
 
 ```sh
-pnpm test    # vitest run + pytest
-pnpm lint    # eslint + ruff check
-pnpm build   # tsc -b + vite build
+pnpm backend:dev
 ```
 
-Per-side variants exist for faster iteration: `pnpm frontend:test`, `pnpm backend:test`, `pnpm backend:lint`, etc. Format backend code with `pnpm backend:format` (ruff).
+```sh
+pnpm frontend:dev
+```
 
-## What a good change looks like
+The backend listens on port `8000`. The Vite development server listens on port `5173` and proxies `/ws` to the backend.
 
-- **Protect the invariants.** The two invariants in the [README](README.md#invariants) (no retry of side-effecting commands on lost responses; no state mutation from expired epochs) are load-bearing. A change that weakens either needs an explicit discussion, not a quiet edit.
-- **Tests accompany behavior.** New failure scenarios or protocol changes need a regression test on the side that enforces them — backend tests live in [backend/tests/](backend/tests/), frontend tests sit next to the code they cover (`*.test.tsx` / `*.test.ts`).
-- **Keep the protocol in sync.** Message types are defined twice by design: [backend/app/protocol.py](backend/app/protocol.py) and the `ServerMessage` union in [frontend/src/useRobotSocket.ts](frontend/src/useRobotSocket.ts). Any protocol change must update both, plus the architecture doc if the message flow changes.
-- **Update the coverage table.** If your change moves a cell in the README coverage matrix (✅ / 🟡 / ❌), update the table and the "Why each 🟡 / ❌" section in the same commit.
-- **No new persistence.** In-memory state is intentional (see "Demo limitations" in the README). Don't add databases or durable queues to make a scenario "more realistic."
+## Verify a change
+
+Run the same high-level checks used by CI:
+
+```sh
+pnpm test
+pnpm lint
+pnpm build
+```
+
+Available focused commands include:
+
+```sh
+pnpm frontend:test:run
+pnpm frontend:lint
+pnpm frontend:build
+
+pnpm backend:test
+pnpm backend:lint
+pnpm backend:format
+```
+
+## Change rules
+
+### Protect the invariants
+
+The two load-bearing invariants are:
+
+> A command with an external side effect must not be retried merely because its response was lost.
+
+> A message from an expired session epoch must not mutate the current operator state.
+
+A change that weakens either invariant requires explicit discussion and corresponding documentation.
+
+### Add regression coverage
+
+New behavior should be tested at the layer that enforces it:
+
+- backend protocol, lifecycle, execution, ledger, and fault behavior belong in `backend/tests/`;
+- frontend state transitions and operator-visible behavior belong in colocated `*.test.ts` or `*.test.tsx` files;
+- cross-layer protocol changes usually require tests on both sides.
+
+### Keep protocol definitions synchronized
+
+The wire protocol is represented in:
+
+- [`backend/app/protocol.py`](backend/app/protocol.py);
+- the `ServerMessage` and related client types in [`frontend/src/useRobotSocket.ts`](frontend/src/useRobotSocket.ts).
+
+A protocol change should update both definitions, tests, and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+### Update documented scope
+
+When a change resolves or introduces a known limitation, update:
+
+- the README's **Intentionally unresolved** section;
+- the architecture document's **Known limitations** section.
+
+Do not leave the documentation implying a guarantee the implementation does not provide.
+
+### Preserve the experiment's scope
+
+Do not add databases, durable queues, authentication, multi-user ownership, or production infrastructure merely to make the simulator appear more realistic.
+
+Such work is appropriate only when the repository's stated purpose is explicitly being revised.
+
+### Keep demo assets current
+
+A visible behavior change should update the relevant image or recording in `res/`.
+
+Keep assets focused on the behavior being reviewed:
+
+- commanded versus observed state;
+- connected-but-stale telemetry;
+- lost completion and reconciliation.
+
+Avoid decorative screenshots that do not demonstrate an invariant or failure mode.
 
 ## Commit conventions
 
-Use [Conventional Commits](https://www.conventionalcommits.org/), matching the existing history:
+Use Conventional Commits:
 
-```
+```text
 feat: add control-ownership epoch check
-fix(websocket): reconnect after server-initiated close
-chore(docs): refine readme
-test(backend): cover duplicate commandId replay
+fix(websocket): reject stale reconciliation event
+test(backend): cover duplicate command ID replay
+docs: refresh failure-scenario recording
 ```
 
-Keep commits scoped to one logical change. Don't mix formatting-only churn with behavior changes.
+Keep each commit limited to one logical change. Do not mix formatting-only churn with behavioral work.
 
 ## Pull requests
 
-- Branch from `main`; CI must pass (it runs on every PR).
-- Describe **which failure scenario or invariant** the change touches, not just what code moved.
-- If the change is visible in the UI, a short screen capture of the relevant scenario helps review considerably.
+A pull request should state:
+
+- which failure stage or invariant it changes;
+- what operator-visible behavior changes;
+- which tests prove the behavior;
+- whether any documented limitation was added or resolved.
+
+For visible changes, include a focused screenshot or short recording of the affected scenario.
+
+CI must pass before merge.

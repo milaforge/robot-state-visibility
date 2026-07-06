@@ -1,82 +1,177 @@
 # Robot State and Command Visibility
 
-A React and FastAPI failure-mode study of operator trust: what a robot dashboard should show when it cannot honestly claim to know the robot's state.
+A React and FastAPI failure-mode study of operator trust: what should a robot interface show when it cannot honestly claim to know the robot's current state?
+
+<p align="center">
+  <img
+    src="res/commanded-vs-observed.png"
+    alt="Robot console showing the commanded pose ahead of the latest observed pose"
+    width="960"
+  />
+</p>
+
+<p align="center">
+  <em>The commanded pose moves first. The solid robot is the latest observed state.</em>
+</p>
+
+## Demo
+
+The most important scenario is not a visible crash. It is a command that may have physically completed while the browser never received the completion event.
+
+<p align="center">
+  <a href="res/lost-completion-reconciliation.webm">
+    <strong>▶ Watch the lost-completion and reconciliation demo</strong>
+  </a>
+</p>
+
+The clip shows:
+
+```text
+REQUESTED
+→ ACKNOWLEDGED
+→ EXECUTING
+→ robot reaches target
+→ connection lost before completion delivery
+→ OUTCOME UNKNOWN
+→ reconnect and reconcile
+→ COMPLETED
+```
 
 ## Why
 
-A robot dashboard has one failure it cannot afford: confidently visualizing a state that is not true. Rough edges are recoverable; a wrong robot state destroys the operator's trust in the tool, and an untrusted control surface is worse than none.
+A robot dashboard cannot afford to confidently visualize a state that is not true.
 
-Operator UIs invite that failure by collapsing four different things into one "robot state": what the operator intended, what the command pipeline reports, what the robot was last observed doing, and how old that observation is. This demo keeps them separate — visually and in the protocol — so that when they disagree, the UI reports uncertainty instead of a confident guess.
+Interfaces make that mistake when they collapse several different claims into one apparent "robot state":
+
+- what the operator requested;
+- what the command pipeline accepted;
+- what execution attempted;
+- what the robot was last observed doing;
+- how old that observation is;
+- whether the command result reached the interface.
+
+This demo keeps those claims separate. When they disagree, the UI reports uncertainty instead of presenting intention, acknowledgement, or stale data as physical truth.
+
+## Stages
+
+```mermaid
+flowchart LR
+    A[1. Request] --> B[2. Acknowledgement]
+    B --> C[3. Execution]
+    C --> D[4. Observation]
+    D --> E[5. Completion delivery]
+    E --> F[6. Reconciliation]
+```
+
+| Stage | What it establishes |
+| --- | --- |
+| **Request** | The operator expressed intent. Nothing has been accepted or executed yet. |
+| **Acknowledgement** | The backend accepted or rejected the command. Acceptance is not completion. |
+| **Execution** | The command is being attempted and may complete, fail, or be interrupted. |
+| **Observation** | Telemetry reports what the robot was last observed doing. |
+| **Completion delivery** | The execution result reaches the operator interface. |
+| **Reconciliation** | An uncertain result is resolved against the backend command ledger after reconnect. |
 
 ## Failure scenarios
 
-Three failure modes can be injected on demand from the UI, each reproducing a race between operator intent and observed state:
+The control panel injects three deterministic failures, each at a different stage.
 
-- **Observation delay** — telemetry goes stale while the WebSocket stays open. The UI degrades a liveness indicator, locks normal motion controls, and keeps emergency stop available.
-- **Execution failure** — a rotation command is acknowledged and starts executing, then fails before the robot's heading changes. The UI distinguishes "accepted" from "done."
-- **Lost completion** — a movement executes successfully, but the connection drops before the completion event is delivered. The UI reports the outcome as *unknown*, disables retry, and reconciles from the authoritative backend ledger after reconnect.
+### 1. Observation failure
+
+Telemetry becomes stale while the WebSocket remains connected.
+
+<p align="center">
+  <img
+    src="res/stale-telemetry.png"
+    alt="Robot console showing a live WebSocket with stale robot telemetry and locked motion controls"
+    width="960"
+  />
+</p>
+
+The interface preserves the last observed pose, marks it stale, disables ordinary motion controls, and keeps the simulated emergency-stop action available.
+
+> Connection alive does not mean robot state trustworthy.
+
+### 2. Execution failure
+
+A rotation command is acknowledged and begins executing, then fails before the robot heading changes.
+
+```text
+REQUESTED → ACKNOWLEDGED → EXECUTING → FAILED
+```
+
+The interface does not present command acceptance as physical completion.
+
+### 3. Completion-delivery failure
+
+A movement completes, but the connection drops before the completion event reaches the browser.
+
+The UI marks the command `UNKNOWN`, disables retry, and waits for reconciliation from the in-memory backend command ledger.
+
+<p align="center">
+  <a href="res/lost-completion-reconciliation.webm">
+    <strong>▶ Replay the completion-delivery failure</strong>
+  </a>
+</p>
 
 ## Invariants
 
-The scenarios exist to pin two invariants with regression tests:
+The scenarios enforce two rules with regression tests:
 
-> A command with an external side effect must never be retried merely because its response was lost.
+> A command with an external side effect must not be retried merely because its response was lost.
 
-> A message from an expired control epoch must never mutate the current operator state.
+> A message from an expired session epoch must not mutate the current operator state.
 
-Commands carry client-generated IDs against a backend command ledger (resending a known ID returns its recorded outcome, never re-executes), and every message is fenced by a session epoch.
+Commands carry client-generated IDs. Reusing an existing ID returns its recorded status instead of executing it again.
 
-## Coverage
+Server messages carry a session epoch. The client rejects messages emitted under an older session.
 
+## What the demo covers
 
-| Surface       | Freshness                                                    | Ordering                                  | Identity                                | Authority                                  | Recovery                                     |
-| ------------- | ------------------------------------------------------------ | ----------------------------------------- | --------------------------------------- | ------------------------------------------ | -------------------------------------------- |
-| Visualization | ✅ Is it current?                                             | 🟡 Can old state overwrite new?            | —                                       | ✅ Which source should the operator trust?  | ✅ How is uncertainty shown after reconnect?  |
-| Control       | 🟡 Can a delayed command execute after its context expired?   | ✅ Can commands execute out of sequence?   | ✅ Can retries duplicate action?         | ❌ Who currently owns control?              | ✅ How is ambiguous execution reconciled?     |
-| Observability | —                                                             | 🟡 Can event order be reconstructed?       | ✅ Can events be correlated end to end?  | ✅ Which record is authoritative?           | —                                            |
+- commanded state versus observed state;
+- explicit command lifecycle;
+- continuously derived telemetry freshness;
+- deterministic observation, execution, and completion-delivery failures;
+- command identity and idempotent reconciliation;
+- session-epoch fencing on the client;
+- interruptible simulated emergency stop;
+- frontend and backend regression tests.
 
-✅ addressed in the current implementation&emsp;🟡 partially addressed&emsp;❌ not addressed&emsp;— consolidated into other cells
+## Intentionally unresolved
 
-<details>
-<summary>Consolidated cells (—)</summary>
+This is a focused work sample, not a production control architecture.
 
-- **visualization identity** decomposes into visualization ordering (epoch fencing) plus observability identity (commandId correlation);
-- **observability freshness** is answered by the same telemetry-age check as visualization freshness — separate sequence-gap detection would only matter on a lossy transport;
-- **observability recovery** is the conjunction of observability authority and control recovery, all three answered by the same ledger-backed reconciliation event.
+The current implementation deliberately does not provide:
 
-</details>
+- client-side validation of robot-state sequence numbers;
+- command expiry for messages delayed in transit;
+- exclusive control ownership across multiple operators or sessions;
+- a durable command ledger or server-side audit history;
+- persistence across backend restarts;
+- a safety-rated emergency-stop path.
 
-<details>
-<summary>Why each 🟡 / ❌</summary>
+These boundaries are documented so the demo does not imply guarantees it does not provide.
 
-- **Visualization / Ordering 🟡** — Messages from an expired session epoch are fenced out client-side, but the `sequence` number the backend attaches to every `robot_state` is never checked by the client, so in-session ordering rests on the WebSocket transport alone.
-- **Control / Freshness 🟡** — The UI locks motion controls while telemetry is stale or the connection is down, but the backend does not validate the epoch a command was issued under and commands have no expiry, so a command delayed in transit would still execute.
-- **Control / Authority ❌** — There is no control-ownership model. A newer session takes over message delivery, but a superseded connection that is still open can submit commands that execute; the backend never compares an incoming command's session epoch to the current one.
-- **Observability / Ordering 🟡** — The client event log preserves insertion order but carries no timestamps, keeps only the last 30 entries, and there is no server-side event history to reconstruct from.
-
-</details>
-
-## How
+## Architecture
 
 ```mermaid
-
 flowchart TD
-
     A[Operator] -->|Interacts with| B[React UI]
+    B -->|Command ID + session epoch| C[FastAPI + WebSocket]
+    C -->|Executes| D[Robot simulator]
+    D -->|Telemetry + lifecycle events| C
+    C -->|Observed state + command status| B
 
-    N["Not architectural recommendations; only for demonstration compactness"]
-
+    N["Chosen for demonstration compactness, not as a production architecture recommendation"]
     N -.-> C
 
-    classDef note fill:#fffbe6,stroke:#d6b656,color:#333,stroke-dasharray: 5 5;
+    classDef note fill:#fffbe6,stroke:#d6b656,color:#333,stroke-dasharray:5 5;
     class N note;
-
-    B -->|Sends commands| C[FastAPI + WebSocket]
-    C -->|Controls| D[Robot]
-    D -->|Emits telemetry + events| E[React Visualization]
-    E -->|Updates| B
-
 ```
+
+The backend simulator owns commanded state, observed state, active execution, and the process-local command ledger.
+
+The frontend owns presentation state, derives telemetry freshness, and rejects messages from expired session epochs.
 
 ## Run
 
@@ -84,27 +179,31 @@ flowchart TD
 docker compose up --build
 ```
 
-Then open http://localhost:3000 and pick a failure scenario from the control panel.
+Open `http://localhost:3000` and choose a failure scenario from the control panel.
 
-For local development with hot reloading:
+For development with hot reload:
 
 ```sh
 pnpm dev
 ```
 
-## Tests
-
-Backend tests cover command idempotency, telemetry staleness and recovery, emergency-stop interruption, and post-disconnect reconciliation; frontend tests cover the operator-facing state machine, expired-epoch rejection, telemetry freshness classification, and the event log. CI runs tests, lint, and build for both sides.
+## Verify
 
 ```sh
 pnpm test
+pnpm lint
+pnpm build
 ```
+
+CI runs the same verification commands with Node.js 24 and Python 3.12.
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the theory behind the state separation and invariants, and how the implementation enforces them.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, workflow, verification, and conventions for changes.
+- [Architecture and invariants](docs/ARCHITECTURE.md)
+- [Development workflow](CONTRIBUTING.md)
 
 ## Demo limitations
 
-The WebSocket session epoch, simulated robot state, and command ledger are kept in backend process memory. Restarting the backend resets command history, robot pose, active faults, queued stale events, and reconciliation state. This is intentional for the deterministic demo and is not a production durability or safety design.
+Robot state, command history, active faults, queued delayed events, session epochs, and reconciliation state are stored in backend process memory.
+
+Restarting the backend resets the complete simulation. This keeps the experiment deterministic and easy to run; it is not a production durability, control-authority, or safety design.

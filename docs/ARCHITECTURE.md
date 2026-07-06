@@ -1,166 +1,335 @@
 # Architecture
 
-This document is in two parts. **Theory** explains the model the system is built around — why the state is split the way it is and which invariants the design must hold. **Implementation** maps that model onto the actual code: processes, protocol, and the mechanisms that enforce each invariant.
+This document explains the design model behind the demo and maps it to the implementation.
+
+The repository is a focused failure-mode experiment. It is not a recommendation for a production robot-control architecture.
 
 ---
 
-## Part 1 — Theory
+## 1. Design model
 
-### The problem: "robot state" is four different claims
+### "Robot state" is several different claims
 
-An operator dashboard that shows a single "robot state" is quietly merging four claims with different truth conditions:
+A dashboard that displays one undifferentiated robot state quietly merges claims with different authorities and truth conditions.
 
-| Claim | Question it answers | Who can answer it |
+| Claim | Question | Authority |
 | --- | --- | --- |
-| **Intent** | What did the operator ask for? | The client, immediately |
-| **Command status** | What does the pipeline say happened to that request? | The backend, per command |
-| **Observation** | What was the robot last seen doing? | Telemetry, eventually |
-| **Freshness** | How old is that observation? | Derived from timestamps, continuously |
+| **Intent** | What did the operator request? | Client |
+| **Command status** | What happened to that request? | Backend command pipeline |
+| **Observation** | What was the robot last observed doing? | Telemetry source |
+| **Freshness** | How reliable is that observation now? | Derived from observation time |
+| **Delivery** | Did the execution result reach the interface? | Transport and session state |
+| **Reconciliation** | What is the authoritative result after uncertainty? | Backend command ledger within the running process |
 
-When all four agree, collapsing them is harmless. The design question is what the UI shows when they *disagree* — a command acknowledged but never completed, telemetry that stopped arriving, a completion event that was sent but never received. A dashboard that answers with a confident single state is guessing, and a wrong confident answer destroys operator trust in a way a visible "unknown" does not.
+When these claims agree, presenting them together is harmless. The design problem appears when they disagree:
 
-The core design decision is therefore: **keep the four claims separate in the protocol and in the UI, and render disagreement as explicit uncertainty.**
+- a command is acknowledged but later fails;
+- telemetry stops while the socket remains connected;
+- physical execution completes but the completion event is lost;
+- a delayed message arrives from an expired session.
 
-### Invariants
+The core decision is therefore:
 
-Two invariants pin the design (both have regression tests):
+> Keep intent, command status, observation, freshness, and delivery state separate in both the protocol and the UI.
 
-1. **Idempotency under retry.** *A command with an external side effect must never be retried merely because its response was lost.* Losing a response tells you nothing about whether the effect happened. The only safe recovery is to ask the authority that executed it, not to re-issue.
+Disagreement is rendered as uncertainty, not converted into a confident guess.
 
-2. **Epoch fencing.** *A message from an expired control epoch must never mutate the current operator state.* After a reconnect, messages from the previous connection may still be in flight. If they can overwrite current state, every reconnect is a race.
+### Command and observation stages
 
-### The mechanisms, abstractly
+```mermaid
+flowchart LR
+    A[Request] --> B[Acknowledgement]
+    B --> C[Execution]
+    C --> D[Observation]
+    D --> E[Completion delivery]
+    E --> F[Reconciliation]
+```
 
-Three mechanisms are sufficient to hold both invariants in this system:
+1. **Request** records operator intent.
+2. **Acknowledgement** confirms acceptance or rejection.
+3. **Execution** may complete, fail, or be interrupted.
+4. **Observation** reports what telemetry last saw.
+5. **Completion delivery** communicates the execution result to the browser.
+6. **Reconciliation** resolves an ambiguous result after reconnect.
 
-- **Client-generated command IDs + a command ledger.** The client names each command with a UUID before sending. The backend records every command it has seen, keyed by that ID, with its latest status and final result. Re-sending a known ID returns the *recorded* outcome — it never re-executes. This makes the command channel idempotent, which makes invariant 1 mechanical rather than disciplinary.
+The three injected faults attack different stages:
 
-- **Session epochs.** Every connection gets a monotonically increasing epoch number, announced at session start. Every server message carries the epoch it was emitted under. The client drops any message whose epoch is lower than its current one. This is a fencing token: stale producers are excluded by comparison, not by hoping their messages drained.
+| Fault | Failed stage | Result |
+| --- | --- | --- |
+| `telemetry_delay` | Observation | The socket stays open while telemetry becomes stale. |
+| `rotation_failure` | Execution | Rotation is accepted and starts, then fails before heading changes. |
+| `lost_completion_after_execution` | Completion delivery | Movement completes, but the result does not reach the browser until reconciliation. |
 
-- **Authoritative reconciliation.** When an outcome is ambiguous (connection lost between acknowledgement and completion), the client parks the command in an explicit **`unknown`** state — retry disabled — and waits. After reconnect, the backend replays the ledger's verdict as a `command_reconciliation` event. Ambiguity is resolved by the ledger, never by client-side inference.
+## 2. Invariants
 
-Freshness is handled separately from correctness: every telemetry message carries the time it was observed, and the client continuously classifies its age (`live` / `delayed` / `stale`). Staleness degrades the UI honestly — motion controls lock, the liveness indicator downgrades — while the emergency stop stays available, because "I don't know the current state" is precisely when the operator must still be able to stop the robot.
+Two invariants are load-bearing and covered by regression tests.
 
-### What the theory deliberately excludes
+### Idempotency under retry
 
-- **Durability.** Ledger, epoch counter, and robot state live in process memory. The invariants under study are about *protocol* correctness, not crash recovery; adding persistence would obscure the demo without changing the argument.
-- **Control ownership.** Epochs fence *message delivery*, not *command authority*. The backend does not currently reject commands issued under an old epoch — a known gap, tracked as the ❌ cell in the README coverage table.
-- **Transport-independent ordering.** In-session ordering rests on the WebSocket (TCP) transport. A `sequence` number is emitted with every state message but not yet checked client-side (a 🟡 cell).
+> A command with an external side effect must not be retried merely because its response was lost.
+
+A missing response does not prove that execution failed. Reissuing the same physical action could duplicate movement.
+
+### Session-epoch fencing
+
+> A message from an expired session epoch must not mutate the current operator state.
+
+After reconnect, messages from the previous session may still be delayed or queued. The client must reject them before applying any state transition.
+
+A session epoch fences message consumption. It does **not** establish exclusive control ownership; that remains outside the current demo.
+
+## 3. Mechanisms
+
+### Client-generated command IDs and command ledger
+
+The client assigns an ID before sending a command.
+
+The backend stores a `CommandRecord` keyed by that ID. A repeated ID returns the recorded status and does not enter an execution path again.
+
+This makes retry behavior mechanical rather than dependent on caller discipline.
+
+The ledger is authoritative only within the lifetime of the running backend process. It is not durable.
+
+### Session epochs
+
+Each connection receives a monotonically increasing session epoch.
+
+Every server message is stamped with the epoch under which it was emitted. The frontend rejects a message when its epoch is lower than the current session epoch.
+
+The comparison occurs before message-specific state handling.
+
+### Explicit unknown outcome
+
+When the socket closes while a command is acknowledged or executing, the frontend moves that command to `unknown`.
+
+While unknown:
+
+- the UI does not claim success;
+- the UI does not claim failure;
+- automatic retry is disabled;
+- the command waits for a backend reconciliation event.
+
+### Authoritative reconciliation
+
+After reconnect, the backend replays the command ledger's recorded verdict through a `command_reconciliation` message.
+
+The frontend resolves `unknown` only when the command ID matches the reconciliation result.
+
+### Telemetry freshness
+
+Each robot-state message contains `observedAtMs`.
+
+The frontend recomputes age continuously, even when no messages arrive:
+
+```text
+live → delayed → stale
+```
+
+Staleness changes the operating UI:
+
+- the last observation remains visible;
+- the visualization no longer presents it as current;
+- ordinary motion controls are disabled;
+- the simulated emergency-stop action remains available.
+
+The emergency-stop path in this repository is demonstrative and not safety-rated.
 
 ---
 
-## Part 2 — Implementation
+## 4. Process topology
 
-### Process topology
-
-Two processes, one WebSocket between them:
-
-```
-┌────────────────────────┐   ws://…/ws    ┌─────────────────────────────┐
-│  frontend (React/Vite) │◄──────────────►│  backend (FastAPI/uvicorn)  │
-│  useRobotSocket hook   │                │  RobotSession per socket    │
-│  :5173 (or :3000)      │                │  RobotSimulator (singleton) │
-└────────────────────────┘                │  :8000                      │
+```text
+┌────────────────────────┐   WebSocket    ┌─────────────────────────────┐
+│ Frontend: React + Vite │◄──────────────►│ Backend: FastAPI + uvicorn  │
+│ useRobotSocket         │                │ RobotSession per socket     │
+│ :5173 or :3000         │                │ RobotSimulator singleton    │
+└────────────────────────┘                │ :8000                       │
                                           └─────────────────────────────┘
 ```
 
-- The **frontend** dev server proxies `/ws` to the backend ([vite.config.ts](../frontend/vite.config.ts)); in compose the UI is published on port 3000. The WebSocket URL is overridable via `VITE_WEBSOCKET_URL`.
-- The **backend** has exactly two endpoints ([app/main.py](../backend/app/main.py)): `GET /api/health` and `WS /ws`. There is no database; the simulator is a module-level singleton shared by all connections.
+The frontend dev server proxies `/ws` to the backend. In the containerized demo, the UI is published on port `3000`.
 
-### Backend
+The backend exposes:
 
-Four modules, in dependency order:
+```text
+GET /api/health
+WS  /ws
+```
+
+There is no database.
+
+## 5. Backend
+
+### Modules
 
 | Module | Responsibility |
 | --- | --- |
-| [protocol.py](../backend/app/protocol.py) | Enums for commands, statuses, faults, message types, robot modes. The vocabulary of the wire protocol. |
-| [state.py](../backend/app/state.py) | `Pose` and `RobotState` (commanded pose, actual pose, mode, sequence counter). `create_message()` stamps `sequence` and `observedAtMs` on every `robot_state`. |
-| [simulation.py](../backend/app/simulation.py) | `RobotMotion` — stepwise interpolation of moves and rotations, with cancellation hooks; `SimulationConfig` — all timing constants (telemetry interval, motion durations, fault delays). |
-| [session.py](../backend/app/session.py) | `RobotSession` (one per WebSocket: accept, receive loop, teardown) and `RobotSimulator` (the shared authority: ledger, epochs, fault injection, telemetry publishing). |
+| [`protocol.py`](../backend/app/protocol.py) | Commands, statuses, faults, message types, and robot modes. |
+| [`state.py`](../backend/app/state.py) | Pose and robot state; stamps sequence and observation time. |
+| [`simulation.py`](../backend/app/simulation.py) | Stepwise movement and rotation plus timing configuration. |
+| [`session.py`](../backend/app/session.py) | WebSocket sessions, command ledger, epochs, faults, telemetry, and reconciliation. |
 
-**Session lifecycle.** `RobotSession.run()` accepts the socket and calls `RobotSimulator.start_session()`, which increments `_session_epoch` under a lock and installs this connection's `send` as the *only* delivery channel — a newer connection silently displaces an older one's delivery. The session sends `session_started`, `connection_status: live`, and an immediate `robot_state` snapshot, then flushes any queued stale-completion events. A per-session telemetry task publishes `robot_state` every `telemetry_interval_seconds` (0.5 s).
+### Session lifecycle
 
-**The command ledger.** `_handle_command` in [session.py](../backend/app/session.py) is where invariant 1 lives:
+`RobotSession.run()` accepts the socket and starts a new session through `RobotSimulator`.
 
-1. Reject commands without a `commandId`.
-2. **If the ID is already in `_ledger`, replay** — send the recorded final result (as a `command_reconciliation` if finalized, else the current status). No re-execution path exists for a known ID.
-3. Otherwise record a `CommandRecord` (ID, command, originating epoch, status) and dispatch.
+Starting a session:
 
-`emergency_stop` and `reset` execute unconditionally; normal motion is rejected while emergency-stopped or while another command is executing (single active command).
+1. increments the session epoch under a lock;
+2. installs the new delivery channel;
+3. sends `session_started`;
+4. sends `connection_status: live`;
+5. sends an immediate robot-state snapshot;
+6. flushes queued completion and reconciliation messages;
+7. starts periodic telemetry.
 
-**Message envelope.** `_send_message` stamps every outgoing message with the current `sessionEpoch` before delivery. This is the producer half of invariant 2.
+A newer connection replaces the active delivery channel, but the backend does not yet enforce exclusive command ownership against older open sockets.
 
-**Fault injection.** Faults are set/cleared by the client via `set_fault` / `clear_fault` and implemented at the point they subvert:
+### Command handling
 
-- `telemetry_delay` — the telemetry loop sleeps 1.2 s before sending each snapshot, so `observedAtMs` ages past the client's staleness threshold while the socket stays open.
-- `rotation_failure` — `RobotMotion.rotate_right` acknowledges, starts, then emits `FAILED` without changing the actual heading, separating "accepted" from "done."
-- `lost_completion_after_execution` — the most involved: on `move_forward`, the backend (a) schedules a timer that completes the movement authoritatively in the ledger even with no client attached, and (b) drops the connection *before* the completion event is delivered. The completion plus its `command_reconciliation` are queued and flushed to whichever session connects next. A `_fault_generation` counter discards delayed telemetry captured under a cleared fault.
+For each command:
 
-### Frontend
+1. require `commandId`;
+2. look up the ID in the ledger;
+3. if present, replay the recorded status without execution;
+4. otherwise create a `CommandRecord`;
+5. validate operating constraints;
+6. dispatch execution;
+7. record lifecycle changes.
 
-State handling is concentrated in one hook; components are presentational.
+Only one ordinary command executes at a time.
+
+The simulated emergency stop can interrupt the active execution task. Reset restores the simulator to its demonstration baseline.
+
+### Fault injection
+
+#### `telemetry_delay`
+
+The telemetry path delays delivery long enough for `observedAtMs` to cross the frontend freshness thresholds.
+
+The WebSocket remains open. This demonstrates that transport liveness is not observation freshness.
+
+#### `rotation_failure`
+
+The backend acknowledges `rotate_right`, reports execution, and then emits `failed` without changing the actual heading.
+
+This separates acceptance from completion.
+
+#### `lost_completion_after_execution`
+
+The backend:
+
+1. acknowledges and starts `move_forward`;
+2. schedules authoritative completion in the simulator and ledger;
+3. drops the connection before delivering the completion event;
+4. records completion after the client is gone;
+5. queues completion and reconciliation messages;
+6. flushes them to the next session.
+
+A fault-generation counter prevents delayed telemetry captured under a cleared fault from being emitted later.
+
+## 6. Frontend
+
+### Modules
 
 | File | Responsibility |
 | --- | --- |
-| [useRobotSocket.ts](../frontend/src/useRobotSocket.ts) | The client-side state machine: connection, epoch fencing, command lifecycle, reconnect (500 ms, or 5 s while a command outcome is unknown so the ambiguous state stays visible), fault toggles. Also defines the `ServerMessage` union — the client's copy of the protocol. |
-| [telemetry.ts](../frontend/src/telemetry.ts) | Freshness classification: age > 500 ms → `delayed`, ≥ 1000 ms → `stale`. Recomputed on a 100 ms interval so staleness is detected even when no messages arrive. |
-| [App.tsx](../frontend/src/App.tsx) | Composition: wires the hook to the panels, derives which controls are locked. |
-| [RobotView.tsx](../frontend/src/RobotView.tsx) | Workcell visualization: renders commanded and actual pose as *distinct* markers plus the liveness indicator — the four-claims separation made visible. |
-| [EventLog.tsx](../frontend/src/EventLog.tsx) / [useEventHistory.ts](../frontend/src/useEventHistory.ts) | Operator-facing event log (insertion-ordered, capped at 30 entries). |
+| [`useRobotSocket.ts`](../frontend/src/useRobotSocket.ts) | Connection, command lifecycle, epochs, reconnect, faults, and reconciliation. |
+| [`telemetry.ts`](../frontend/src/telemetry.ts) | Continuously derives telemetry freshness from observation age. |
+| [`App.tsx`](../frontend/src/App.tsx) | Composes panels and derives control availability. |
+| [`RobotView.tsx`](../frontend/src/RobotView.tsx) | Renders commanded and observed pose separately. |
+| [`EventLog.tsx`](../frontend/src/EventLog.tsx) | Presents recent operator-facing events. |
+| [`useEventHistory.ts`](../frontend/src/useEventHistory.ts) | Maintains the bounded client-side event history. |
 
-**Epoch fencing (consumer half).** The first check in `onmessage` is `isExpired`: any message whose `sessionEpoch` is below the current one is dropped and logged as `ignored event from expired session epoch N`. Only a `session_started` can raise the current epoch. This is invariant 2's enforcement point — one predicate, ahead of all state updates.
+### Epoch fencing
 
-**The `unknown` state.** When the socket closes while a command is `acknowledged` or `executing`, the client sets the command status to `unknown`, disables retry, and explains why. It stays there until a `command_reconciliation` for that `commandId` arrives, at which point the ledger's verdict replaces the ambiguity. The client never guesses an outcome and never auto-resends.
+The first relevant check in the WebSocket message handler determines whether a message belongs to an expired session epoch.
 
-### Protocol summary
+Expired messages are ignored before they can update:
 
-Client → server: `command` (with `commandId`, `command`, `sessionEpoch`), `set_fault`, `clear_fault`.
+- robot state;
+- connection state;
+- command lifecycle;
+- fault state;
+- event-derived presentation.
 
-Server → client (all stamped with `sessionEpoch`):
+Only `session_started` can advance the current epoch.
+
+### Unknown and reconciliation
+
+If the socket closes while the current command is acknowledged or executing, the frontend sets the command status to `unknown`.
+
+The reconnect delay is intentionally longer while the outcome is unknown so that the ambiguous state remains visible in the demonstration.
+
+A matching `command_reconciliation` replaces `unknown` with the ledger's resolved status.
+
+The client does not infer completion from robot position and does not automatically resend the command.
+
+## 7. Protocol
+
+### Client to server
+
+| Message | Required data |
+| --- | --- |
+| `command` | `commandId`, `command`, `sessionEpoch` |
+| `set_fault` | Fault identifier |
+| `clear_fault` | Active fault identifier or clear action |
+
+### Server to client
+
+All server messages carry `sessionEpoch`.
 
 | Message | Meaning |
 | --- | --- |
-| `session_started` | New epoch; the client adopts it as current. |
-| `connection_status` | `live` / `disconnected` (the latter also closes the socket server-side). |
-| `robot_state` | `sequence`, `observedAtMs`, `mode`, `commandedPose`, `actualPose`. |
-| `command_status` | Lifecycle: `acknowledged` → `executing` → `completed` \| `failed` \| `aborted` \| `rejected`. |
-| `command_reconciliation` | Ledger verdict for an ambiguous command: `commandId`, `originalSessionEpoch`, `resolvedStatus`, `reason`. |
-| `fault_status` | Fault enabled/disabled confirmation. |
-| `error` | Unsupported message or fault. |
+| `session_started` | Announces the newly assigned session epoch. |
+| `connection_status` | Reports transport state. |
+| `robot_state` | Contains sequence, observation time, mode, commanded pose, and actual pose. |
+| `command_status` | Reports acknowledgement, execution, completion, failure, abortion, or rejection. |
+| `command_reconciliation` | Resolves an ambiguous command from the ledger. |
+| `fault_status` | Confirms fault activation or clearing. |
+| `error` | Reports unsupported or invalid input. |
 
-### Sequence: the lost-completion scenario end to end
+## 8. Lost-completion sequence
 
+```text
+operator          frontend                     backend
+   │                  │                           │
+   │ move forward     │                           │
+   │─────────────────►│ command {id, epoch N}     │
+   │                  │──────────────────────────►│ ledger[id] = acknowledged
+   │                  │◄── acknowledged/executing │ movement starts
+   │                  │                           │ completion scheduled
+   │                  │◄── connection closes ─────│ result not delivered
+   │ sees UNKNOWN     │ status → unknown          │ movement completes
+   │ retry disabled   │                           │ ledger[id] = completed
+   │                  │ reconnect ───────────────►│ epoch N+1
+   │                  │◄── session_started ───────│
+   │                  │◄── reconciliation ─────────│ recorded verdict
+   │ sees COMPLETED   │ unknown → completed       │
 ```
-operator          frontend                    backend (simulator)
-   │  move forward   │                             │
-   │────────────────►│  command {id, epoch N}      │
-   │                 │────────────────────────────►│ ledger[id] = acknowledged
-   │                 │◄──── acknowledged, executing│ motion starts; completion
-   │                 │                             │ timer scheduled
-   │                 │◄──── connection dropped ────│ (fault: before completion)
-   │   "UNKNOWN"     │  status → unknown,          │ timer fires: ledger[id] =
-   │   retry locked  │  retry disabled             │ completed; event queued
-   │                 │── reconnect ───────────────►│ epoch N+1
-   │                 │◄─ session_started (N+1) ────│
-   │                 │◄─ queued completion ────────│
-   │                 │◄─ command_reconciliation ───│ ledger verdict replayed
-   │   "COMPLETED    │  ambiguity resolved from    │
-   │   (reconciled)" │  the authoritative ledger   │
-```
 
-### Where each invariant is enforced and tested
+## 9. Enforcement and tests
 
-| Invariant | Enforced at | Tested by |
+| Property | Enforcement | Regression coverage |
 | --- | --- | --- |
-| No blind retry of side-effecting commands | Ledger replay in `_handle_command` ([session.py](../backend/app/session.py)); `unknown` state with retry disabled ([useRobotSocket.ts](../frontend/src/useRobotSocket.ts)) | [backend/tests/test_websocket.py](../backend/tests/test_websocket.py) (idempotency, reconciliation); [App.test.tsx](../frontend/src/App.test.tsx) |
-| Expired-epoch messages cannot mutate state | `sessionEpoch` stamping in `_send_message` (producer); `isExpired` gate in `onmessage` (consumer) | [App.test.tsx](../frontend/src/App.test.tsx) (expired-epoch rejection) |
+| Reusing a command ID does not repeat execution | Ledger lookup before command dispatch | Backend WebSocket tests |
+| Lost completion becomes unknown rather than failed | Frontend close handling | Frontend application tests |
+| Unknown commands are resolved from the ledger | Reconciliation message matched by command ID | Backend and frontend tests |
+| Expired session messages cannot update UI state | Session-epoch guard before message handling | Frontend application tests |
+| Stale telemetry disables ordinary controls | Continuous freshness classification | Frontend telemetry and application tests |
+| Emergency stop interrupts active simulation | Cancellable backend execution task | Backend WebSocket tests |
 
-### Known gaps
+## 10. Known limitations
 
-These are deliberate scope cuts, tracked in the README coverage table — read that table before assuming a property holds:
+These are deliberate scope boundaries, not implied guarantees:
 
-- **No control-ownership model (❌).** The backend never validates a command's epoch against the current one; a superseded connection that is still open can execute commands.
-- **`sequence` unchecked (🟡).** In-session ordering relies on TCP; the emitted sequence number is not verified client-side.
-- **No command expiry (🟡).** A command delayed in transit executes whenever it arrives.
-- **Event log is UI-only (🟡).** No timestamps, capped at 30 entries, no server-side history to reconstruct from.
-- **Everything is in-memory (by design).** A backend restart resets ledger, epochs, pose, and faults. See "Demo limitations" in the [README](../README.md).
+- robot-state `sequence` is emitted but not checked client-side;
+- in-session ordering relies on the WebSocket's TCP ordering;
+- commands do not expire in transit;
+- the backend does not enforce exclusive control ownership;
+- the event log is client-side, bounded, and not an audit trail;
+- ledger, epochs, robot state, and faults are process-local;
+- backend restart clears all reconciliation history;
+- emergency stop is simulated and not safety-rated.
+
+See the README's **Intentionally unresolved** section for the reviewer-facing summary.
