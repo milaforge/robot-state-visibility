@@ -87,7 +87,7 @@ export default function EventLog({
         <header className="drawer-header">
           <div>
             <p className="section-label">Activity</p>
-            <h2 id="event-history-title">Recent events</h2>
+            <h2 id="event-history-title">Recent UI events</h2>
           </div>
 
           <button
