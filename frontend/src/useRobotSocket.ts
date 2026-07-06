@@ -310,6 +310,7 @@ export function useRobotSocket(url: string) {
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current)
       }
+      reconnectTimerRef.current = null
       active = false
       socketRef.current?.close()
     }
